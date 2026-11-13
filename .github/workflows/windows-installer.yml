@@ -1,0 +1,48 @@
+name: Build Windows installer
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install WiX
+        shell: pwsh
+        run: dotnet tool install --global wix --version 5.0.2
+
+      - name: Download verified sing-box
+        id: engine
+        shell: pwsh
+        run: |
+          $zip = .\scripts\get-sing-box.ps1 -IUnderstandThisDownloadsThirdPartySoftware
+          "zip=$zip" >> $env:GITHUB_OUTPUT
+
+      - name: Build, test, publish, and package
+        shell: pwsh
+        run: |
+          .\scripts\package-windows.ps1 `
+            -SingBoxZip '${{ steps.engine.outputs.zip }}' `
+            -SingBoxZipSha256 '99185d75d314a07dbba4a130c8ad986cbeb629a07927975636b341ca61f991df'
+
+      - name: Upload MSI
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlowTunnel-windows-x64
+          path: artifacts/FlowTunnel-x64.msi
+          if-no-files-found: error
+          retention-days: 14

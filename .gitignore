@@ -1,0 +1,14 @@
+bin/
+obj/
+.vs/
+*.user
+*.suo
+artifacts/
+TestResults/
+src/FlowTunnel.Desktop/AppPackages/
+src/FlowTunnel.Desktop/Generated Files/
+installer/bin/
+installer/obj/
+tools/sing-box/
+*.log
+*.dmp

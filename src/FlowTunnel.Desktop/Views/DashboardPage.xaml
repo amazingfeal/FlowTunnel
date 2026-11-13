@@ -1,0 +1,14 @@
+<UserControl x:Class="FlowTunnel.Desktop.Views.DashboardPage" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <ScrollViewer><StackPanel Padding="32" Spacing="20" MaxWidth="900" HorizontalAlignment="Left">
+    <TextBlock Text="Dashboard" Style="{StaticResource PageTitleStyle}" />
+    <Border Style="{StaticResource CardStyle}"><Grid ColumnSpacing="24"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+      <StackPanel Spacing="8"><TextBlock Text="{Binding Status}" FontSize="22" FontWeight="SemiBold" AutomationProperties.LiveSetting="Polite"/><TextBlock Text="{Binding ProfileName}" Opacity="0.72"/><TextBlock Text="FlowTunnel reports Connected only after configuration validation, service startup, and engine liveness checks complete." TextWrapping="Wrap" MaxWidth="580"/></StackPanel>
+      <Button Grid.Column="1" Content="{Binding ToggleLabel}" Command="{Binding ToggleConnectionCommand}" MinWidth="132" MinHeight="44" AccessKey="C" />
+    </Grid></Border>
+    <TextBlock Text="{Binding ErrorMessage}" Foreground="{ThemeResource SystemFillColorCriticalBrush}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive" />
+    <Grid ColumnSpacing="16"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+      <Border Style="{StaticResource CardStyle}"><StackPanel Spacing="6"><TextBlock Text="Routing mode" FontWeight="SemiBold"/><TextBlock Text="Only selected applications use VPN" TextWrapping="Wrap"/><TextBlock Text="Configure applications from the Applications page." Opacity="0.7"/></StackPanel></Border>
+      <Border Grid.Column="1" Style="{StaticResource CardStyle}"><StackPanel Spacing="6"><TextBlock Text="Traffic metrics" FontWeight="SemiBold"/><TextBlock Text="Unavailable"/><TextBlock Text="Metrics are hidden until a reliable source is connected." Opacity="0.7" TextWrapping="Wrap"/></StackPanel></Border>
+    </Grid>
+  </StackPanel></ScrollViewer>
+</UserControl>

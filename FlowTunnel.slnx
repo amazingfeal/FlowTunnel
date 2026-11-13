@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/FlowTunnel.Core/FlowTunnel.Core.csproj" />
+    <Project Path="src/FlowTunnel.Application/FlowTunnel.Application.csproj" />
+    <Project Path="src/FlowTunnel.Infrastructure/FlowTunnel.Infrastructure.csproj" />
+    <Project Path="src/FlowTunnel.Networking/FlowTunnel.Networking.csproj" />
+    <Project Path="src/FlowTunnel.Windows/FlowTunnel.Windows.csproj" />
+    <Project Path="src/FlowTunnel.Service/FlowTunnel.Service.csproj" />
+    <Project Path="src/FlowTunnel.Desktop/FlowTunnel.Desktop.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/FlowTunnel.Core.Tests/FlowTunnel.Core.Tests.csproj" />
+    <Project Path="tests/FlowTunnel.Application.Tests/FlowTunnel.Application.Tests.csproj" />
+    <Project Path="tests/FlowTunnel.Networking.Tests/FlowTunnel.Networking.Tests.csproj" />
+    <Project Path="tests/FlowTunnel.IntegrationTests/FlowTunnel.IntegrationTests.csproj" />
+  </Folder>
+</Solution>
