@@ -3,7 +3,7 @@ using FlowTunnel.Networking;
 using FlowTunnel.Service;
 
 var builder = Host.CreateApplicationBuilder(args);
-builder.Services.AddWindowsService(options => options.ServiceName = "FlowTunnel Tunnel Service");
+builder.Services.AddWindowsService(options => options.ServiceName = "FlowTunnel.Service");
 builder.Services.AddSingleton(sp =>
 {
     var installRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, ".."));

@@ -1,15 +1,26 @@
 # FlowTunnel
 
-FlowTunnel is a Windows 10/11 x64 WinUI 3 client for sing-box with persistent per-application routing. It discovers foreground and background processes, groups executable instances, and produces validated sing-box TUN configurations for either:
+FlowTunnel is a Windows 10/11 x64 desktop client for sing-box with persistent per-application routing. It discovers foreground and background processes, groups executable instances, and produces validated sing-box TUN configurations for either:
 
 - only selected applications through the proxy, with everything else direct; or
 - all applications through the proxy, with selected applications direct.
 
 ## Current implementation
 
-The repository contains the clean-architecture solution, WinUI shell, VLESS/VMess/Trojan/Shadowsocks/SOCKS/HTTP URI import, VLESS + REALITY preservation, DPAPI-protected credentials, atomic JSON persistence, Windows process discovery, a restricted elevated Windows service, sing-box SHA-256/version/config validation, supervised start/stop, route generation, unit tests, and WiX packaging sources.
+The repository contains the clean-architecture solution, WinForms shell, VLESS/VMess/Trojan/Shadowsocks/SOCKS/HTTP URI import, VLESS + REALITY preservation, DPAPI-protected credentials, atomic JSON persistence, Windows process discovery, a restricted elevated Windows service, sing-box SHA-256/version/config validation, supervised start/stop, route generation, unit tests, and MSI packaging sources.
 
 It does **not** claim a completed Windows acceptance test from this macOS workspace. See [docs/VERIFICATION.md](docs/VERIFICATION.md).
+
+## One-command Windows build on macOS
+
+Prerequisites are .NET SDK 10 and `msitools`:
+
+```bash
+brew install dotnet@10 msitools
+./scripts/build-windows.sh 0.2.0
+```
+
+The script downloads and verifies the pinned sing-box archive, runs the unit tests, publishes self-contained Windows x64 executables, builds the MSI, and writes both `artifacts/FlowTunnel-x64.msi` and its `.sha256` file. Update `VERSION` when the version argument is omitted.
 
 ## Build on Windows
 
@@ -17,7 +28,6 @@ Prerequisites:
 
 - Windows 10 1809+ or Windows 11 x64
 - Visual Studio 2026 or .NET SDK 10.0.100+
-- Windows App SDK 2.6.5 tooling
 - WiX Toolset 5 (`dotnet tool install --global wix`)
 
 ```powershell

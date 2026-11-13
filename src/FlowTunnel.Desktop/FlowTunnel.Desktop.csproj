@@ -1,25 +1,23 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <UseWinUI>true</UseWinUI>
-    <EnableMsixTooling>true</EnableMsixTooling>
-    <WindowsPackageType>None</WindowsPackageType>
-    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
-    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
-    <Platforms>x64</Platforms>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PlatformTarget>x64</PlatformTarget>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="MainForm.cs" />
     <ProjectReference Include="../FlowTunnel.Core/FlowTunnel.Core.csproj" />
     <ProjectReference Include="../FlowTunnel.Application/FlowTunnel.Application.csproj" />
     <ProjectReference Include="../FlowTunnel.Infrastructure/FlowTunnel.Infrastructure.csproj" />
     <ProjectReference Include="../FlowTunnel.Networking/FlowTunnel.Networking.csproj" />
     <ProjectReference Include="../FlowTunnel.Windows/FlowTunnel.Windows.csproj" />
-    <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
-    <PackageReference Include="Microsoft.WindowsAppSDK" />
     <PackageReference Include="Serilog.Extensions.Hosting" />
     <PackageReference Include="Serilog.Sinks.File" />
   </ItemGroup>

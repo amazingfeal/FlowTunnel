@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="FlowTunnel" Language="1033" Version="$(var.ProductVersion)" Manufacturer="FlowTunnel contributors" UpgradeCode="2E48AB94-91A8-44A0-BC56-6FEF90BF4B13">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of FlowTunnel is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="FlowTunnel">
+          <Directory Id="DesktopDir" Name="Desktop" />
+          <Directory Id="ServiceDir" Name="Service" />
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="ProgramMenuFlowTunnel" Name="FlowTunnel" />
+      </Directory>
+    </Directory>
+
+    <DirectoryRef Id="DesktopDir">
+      <Component Id="DesktopComponent" Guid="*" Win64="yes">
+        <File Id="DesktopExe" Source="$(var.DesktopExe)" KeyPath="yes">
+          <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFlowTunnel" Name="FlowTunnel" WorkingDirectory="DesktopDir" Advertise="yes" />
+        </File>
+      </Component>
+    </DirectoryRef>
+    <DirectoryRef Id="ServiceDir">
+      <Component Id="ServiceComponent" Guid="*" Win64="yes">
+        <File Id="ServiceExe" Source="$(var.ServiceExe)" KeyPath="yes" />
+        <ServiceInstall Id="InstallTunnelService" Name="FlowTunnel.Service" DisplayName="FlowTunnel Tunnel Service" Description="Runs the approved sing-box TUN engine with elevated privileges." Type="ownProcess" Start="auto" ErrorControl="normal" Account="LocalSystem" />
+        <ServiceControl Id="ControlTunnelService" Name="FlowTunnel.Service" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+      </Component>
+    </DirectoryRef>
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="EngineComponent" Guid="*" Win64="yes">
+        <File Id="SingBoxExe" Source="$(var.SingBoxExe)" KeyPath="yes" />
+        <File Id="EngineMetadata" Source="$(var.EngineMetadata)" />
+        <File Id="SingBoxLicense" Source="$(var.SingBoxLicense)" />
+      </Component>
+    </DirectoryRef>
+
+    <Feature Id="MainFeature" Title="FlowTunnel" Level="1">
+      <ComponentRef Id="DesktopComponent" />
+      <ComponentRef Id="ServiceComponent" />
+      <ComponentRef Id="EngineComponent" />
+    </Feature>
+  </Product>
+</Wix>
