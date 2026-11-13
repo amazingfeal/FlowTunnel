@@ -89,7 +89,7 @@ public sealed class ConnectionManager : IConnectionManager, IDisposable
 
     private void OnUnexpectedExit(object? sender, int exitCode)
     {
-        _logger.LogError("FT-ENGINE-EXIT: sing-box exited unexpectedly with code {ExitCode}", exitCode);
+        _logger.LogError("FT-ENGINE-EXIT: Xray exited unexpectedly with code {ExitCode}", exitCode);
         SetState(Snapshot with { State = ConnectionState.Error, ErrorCode = "FT-ENGINE-EXIT", ErrorMessage = $"The network engine stopped unexpectedly (exit code {exitCode}). Windows may restore direct routing; close protected applications if direct fallback is unsafe." });
     }
 

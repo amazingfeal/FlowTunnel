@@ -35,8 +35,8 @@ public sealed class ProfileUriImporter : IProfileImporter
             var publicKey = Get(query, "pbk") ?? throw new FormatException("REALITY public key (pbk) is required.");
             reality = new(publicKey, Get(query, "sid"));
         }
-        var type = Get(query, "type");
-        var transport = type is null or "tcp" ? null : new TransportOptions(type, Get(query, "path"), Get(query, "host"), Get(query, "serviceName"));
+        var type = NormalizeTransport(Get(query, "type"));
+        var transport = type is null ? null : new TransportOptions(type, Get(query, "path"), Get(query, "host"), Get(query, "serviceName"), Get(query, "mode"), Get(query, "extra"));
         var userInfo = Uri.UnescapeDataString(uri.UserInfo);
         string? user = userInfo;
         string? password = null;
@@ -63,11 +63,11 @@ public sealed class ProfileUriImporter : IProfileImporter
             var host = Required(root, "add");
             var port = ushort.Parse(Required(root, "port"), System.Globalization.CultureInfo.InvariantCulture);
             var tls = root.TryGetProperty("tls", out var tlsElement) && tlsElement.GetString() is { Length: > 0 };
-            var network = root.TryGetProperty("net", out var net) ? net.GetString() : null;
+            var network = NormalizeTransport(root.TryGetProperty("net", out var net) ? net.GetString() : null);
             var profile = new ProxyProfile(Guid.NewGuid(), root.TryGetProperty("ps", out var ps) ? ps.GetString() ?? host : host,
                 ProxyProtocol.Vmess, host, port, Required(root, "id"), null, null,
                 tls ? new(true, root.TryGetProperty("sni", out var sni) ? sni.GetString() : host, null, null, null) : null,
-                network is null or "tcp" ? null : new(network, root.TryGetProperty("path", out var p) ? p.GetString() : null, root.TryGetProperty("host", out var h) ? h.GetString() : null, null));
+                network is null ? null : new(network, root.TryGetProperty("path", out var p) ? p.GetString() : null, root.TryGetProperty("host", out var h) ? h.GetString() : null, null));
             profile.Validate();
             return profile;
         }
@@ -89,5 +89,21 @@ public sealed class ProfileUriImporter : IProfileImporter
         .Select(part => part.Split('=', 2)).ToDictionary(p => Uri.UnescapeDataString(p[0]), p => p.Length > 1 ? Uri.UnescapeDataString(p[1]) : "", StringComparer.OrdinalIgnoreCase);
     private static string? Get(Dictionary<string, string> query, string key) => query.TryGetValue(key, out var value) ? value : null;
     private static string Required(JsonElement element, string name) => element.TryGetProperty(name, out var property) && property.ToString() is { Length: > 0 } value ? value : throw new FormatException($"VMess field '{name}' is required.");
+    private static string? NormalizeTransport(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        return value.Trim().ToLowerInvariant() switch
+        {
+            "tcp" or "raw" => null,
+            "ws" or "websocket" => "ws",
+            "http" or "h2" or "http2" => "http",
+            "grpc" => "grpc",
+            "httpupgrade" => "httpupgrade",
+            "quic" => "quic",
+            "xhttp" or "splithttp" => "xhttp",
+            "kcp" or "mkcp" => "mkcp",
+            var unsupported => throw new NotSupportedException($"Unsupported transport type: {unsupported}. Supported transports are RAW/TCP, XHTTP, WebSocket, HTTP, gRPC, mKCP, QUIC and HTTPUpgrade.")
+        };
+    }
     private static string PadBase64(string value) { value = value.Replace('-', '+').Replace('_', '/'); return value.PadRight(value.Length + ((4 - value.Length % 4) % 4), '='); }
 }

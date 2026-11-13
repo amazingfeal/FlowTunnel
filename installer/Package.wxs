@@ -1,5 +1,5 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <Package Name="FlowTunnel" Manufacturer="FlowTunnel contributors" Version="0.1.0" UpgradeCode="2E48AB94-91A8-44A0-BC56-6FEF90BF4B13" Scope="perMachine" Compressed="yes">
+  <Package Name="FlowTunnel" Manufacturer="FlowTunnel contributors" Version="0.2.0" UpgradeCode="2E48AB94-91A8-44A0-BC56-6FEF90BF4B13" Scope="perMachine" Compressed="yes">
     <MajorUpgrade DowngradeErrorMessage="A newer version of FlowTunnel is already installed." />
     <MediaTemplate EmbedCab="yes" />
     <StandardDirectory Id="ProgramFiles64Folder">
@@ -22,15 +22,15 @@
     <ComponentGroup Id="ServicePayload" Directory="ServiceFolder"><Files Include="$(var.ServicePublish)\**" Exclude="$(var.ServicePublish)\FlowTunnel.Service.exe" /></ComponentGroup>
     <DirectoryRef Id="INSTALLFOLDER">
       <Component Id="EnginePayload" Guid="*">
-        <File Id="SingBoxExe" Source="$(var.PayloadRoot)\sing-box.exe" KeyPath="yes" />
+        <File Id="XrayExe" Source="$(var.PayloadRoot)\xray.exe" KeyPath="yes" />
         <File Id="EngineMetadata" Source="$(var.PayloadRoot)\engine.json" />
-        <File Id="SingBoxLicense" Source="$(var.PayloadRoot)\sing-box-LICENSE.txt" />
+        <File Id="XrayLicense" Source="$(var.PayloadRoot)\xray-LICENSE.txt" />
       </Component>
     </DirectoryRef>
     <DirectoryRef Id="ServiceFolder">
       <Component Id="TunnelService" Guid="*">
         <File Id="ServiceExe" Source="$(var.ServicePublish)\FlowTunnel.Service.exe" KeyPath="yes" />
-        <ServiceInstall Id="InstallTunnelService" Name="FlowTunnel.Service" DisplayName="FlowTunnel Tunnel Service" Description="Runs the approved sing-box TUN engine with elevated privileges." Type="ownProcess" Start="auto" ErrorControl="normal" Account="LocalSystem" />
+        <ServiceInstall Id="InstallTunnelService" Name="FlowTunnel.Service" DisplayName="FlowTunnel Tunnel Service" Description="Runs the approved Xray TUN engine with elevated privileges." Type="ownProcess" Start="auto" ErrorControl="normal" Account="LocalSystem" />
         <ServiceControl Id="ControlTunnelService" Name="FlowTunnel.Service" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
       </Component>
     </DirectoryRef>

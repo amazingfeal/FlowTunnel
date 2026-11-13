@@ -8,10 +8,10 @@ builder.Services.AddSingleton(sp =>
 {
     var installRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, ".."));
     using var metadata = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(installRoot, "engine.json")));
-    return new SingBoxOptions(Path.Combine(installRoot, "sing-box.exe"), metadata.RootElement.GetProperty("sha256").GetString() ?? throw new InvalidDataException("engine.json has no SHA-256."));
+    return new XrayOptions(Path.Combine(installRoot, "xray.exe"), metadata.RootElement.GetProperty("sha256").GetString() ?? throw new InvalidDataException("engine.json has no SHA-256."));
 });
-builder.Services.AddSingleton<SingBoxProcess>();
-builder.Services.AddSingleton<IProxyEngine>(sp => sp.GetRequiredService<SingBoxProcess>());
-builder.Services.AddSingleton<IProxyConfigurationValidator>(sp => sp.GetRequiredService<SingBoxProcess>());
+builder.Services.AddSingleton<XrayProcess>();
+builder.Services.AddSingleton<IProxyEngine>(sp => sp.GetRequiredService<XrayProcess>());
+builder.Services.AddSingleton<IProxyConfigurationValidator>(sp => sp.GetRequiredService<XrayProcess>());
 builder.Services.AddHostedService<TunnelServiceWorker>();
 await builder.Build().RunAsync();

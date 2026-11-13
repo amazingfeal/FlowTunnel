@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <UI Id="FlowTunnelUI">
+      <TextStyle Id="WixUI_Font_Normal" FaceName="Tahoma" Size="8" />
+      <TextStyle Id="WixUI_Font_Bigger" FaceName="Tahoma" Size="12" />
+      <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+      <Dialog Id="InstallOptionsDlg" Width="370" Height="270" Title="[ProductName] Setup">
+        <Control Id="Title" Type="Text" X="20" Y="20" Width="330" Height="24" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Bigger}Install FlowTunnel" />
+        <Control Id="Description" Type="Text" X="20" Y="53" Width="330" Height="32" Text="Choose where FlowTunnel is installed and select the shortcuts you want." />
+        <Control Id="FolderLabel" Type="Text" X="20" Y="96" Width="330" Height="16" Text="Installation folder:" />
+        <Control Id="Folder" Type="PathEdit" X="20" Y="114" Width="330" Height="18" Property="WIXUI_INSTALLDIR" Indirect="yes" />
+        <Control Id="DesktopCheck" Type="CheckBox" X="20" Y="151" Width="330" Height="18" Property="CREATE_DESKTOP_SHORTCUT" CheckBoxValue="1" Text="Create a desktop shortcut" />
+        <Control Id="LaunchNote" Type="Text" X="20" Y="180" Width="330" Height="34" Text="After installation you can choose whether to launch FlowTunnel. This option is enabled by default." />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Install" Type="PushButton" X="212" Y="243" Width="80" Height="17" Default="yes" Text="Install"><Publish Event="EndDialog" Value="Return">1</Publish></Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="Cancel"><Publish Event="EndDialog" Value="Exit">1</Publish></Control>
+      </Dialog>
+      <DialogRef Id="ProgressDlg" />
+      <DialogRef Id="ExitDialog" />
+      <DialogRef Id="FatalError" />
+      <DialogRef Id="UserExit" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchFlowTunnel" Order="1">WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1</Publish>
+      <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999">1</Publish>
+      <InstallUISequence>
+        <Show Dialog="InstallOptionsDlg" Before="ProgressDlg">NOT Installed</Show>
+        <Show Dialog="ProgressDlg" Before="ExecuteAction">NOT Installed</Show>
+      </InstallUISequence>
+    </UI>
+  </Fragment>
+</Wix>

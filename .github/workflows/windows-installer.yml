@@ -25,19 +25,19 @@ jobs:
         shell: pwsh
         run: dotnet tool install --global wix --version 5.0.2
 
-      - name: Download verified sing-box
+      - name: Download verified Xray
         id: engine
         shell: pwsh
         run: |
-          $zip = .\scripts\get-sing-box.ps1 -IUnderstandThisDownloadsThirdPartySoftware
+          $zip = .\scripts\get-xray.ps1 -IUnderstandThisDownloadsThirdPartySoftware
           "zip=$zip" >> $env:GITHUB_OUTPUT
 
       - name: Build, test, publish, and package
         shell: pwsh
         run: |
           .\scripts\package-windows.ps1 `
-            -SingBoxZip '${{ steps.engine.outputs.zip }}' `
-            -SingBoxZipSha256 '99185d75d314a07dbba4a130c8ad986cbeb629a07927975636b341ca61f991df'
+            -XrayZip '${{ steps.engine.outputs.zip }}' `
+            -XrayZipSha256 '1262522266337b824f07beb8e1375786b437683b3890105469088f8e17e0a69d'
 
       - name: Upload MSI
         uses: actions/upload-artifact@v4

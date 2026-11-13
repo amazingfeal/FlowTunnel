@@ -61,7 +61,8 @@ public sealed record ProxyProfile(
     string? Flow,
     TlsOptions? Tls,
     TransportOptions? Transport,
-    bool IsDefault = false)
+    bool IsDefault = false,
+    Guid? SubscriptionId = null)
 {
     public void Validate()
     {
@@ -77,7 +78,13 @@ public sealed record ProxyProfile(
 
 public sealed record TlsOptions(bool Enabled, string? ServerName, string? Alpn, RealityOptions? Reality, string? Fingerprint);
 public sealed record RealityOptions(string PublicKey, string? ShortId);
-public sealed record TransportOptions(string Type, string? Path, string? Host, string? ServiceName);
+public sealed record TransportOptions(string Type, string? Path, string? Host, string? ServiceName, string? Mode = null, string? Extra = null);
+
+public sealed record ProxySubscription(Guid Id, string Name, string Url, DateTimeOffset? LastUpdatedAt, string? LastError = null);
+public sealed record ProfileLatency(Guid ProfileId, TimeSpan? Duration, string? Error)
+{
+    public bool IsReachable => Duration is not null;
+}
 
 public sealed record AppSettings(
     RoutingMode RoutingMode = RoutingMode.OnlySelectedUseVpn,

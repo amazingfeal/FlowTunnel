@@ -1,3 +1,6 @@
+using System.Drawing.Drawing2D;
+using System.Text.RegularExpressions;
+using System.ComponentModel;
 using FlowTunnel.Application;
 using FlowTunnel.Core;
 using Microsoft.Extensions.DependencyInjection;
@@ -6,98 +9,304 @@ namespace FlowTunnel.Desktop;
 
 internal sealed class MainForm : Form
 {
+    private static readonly Color Background = Color.FromArgb(15, 23, 42);
+    private static readonly Color Sidebar = Color.FromArgb(11, 18, 32);
+    private static readonly Color Surface = Color.FromArgb(25, 33, 52);
+    private static readonly Color SurfaceRaised = Color.FromArgb(33, 43, 65);
+    private static readonly Color Border = Color.FromArgb(52, 65, 88);
+    private static readonly Color TextPrimary = Color.FromArgb(248, 250, 252);
+    private static readonly Color TextMuted = Color.FromArgb(160, 174, 192);
+    private static readonly Color Accent = Color.FromArgb(16, 185, 129);
+    private static readonly Color AccentDark = Color.FromArgb(5, 150, 105);
+    private static readonly Color Blue = Color.FromArgb(59, 130, 246);
+    private static readonly Color Danger = Color.FromArgb(239, 68, 68);
+
     private readonly IConnectionManager _connection;
     private readonly IProfileRepository _profiles;
     private readonly IProfileImporter _importer;
+    private readonly ISubscriptionRepository _subscriptionRepository;
+    private readonly ISubscriptionService _subscriptionService;
+    private readonly IProfileLatencyService _latencyService;
     private readonly IProcessDiscoveryService _processes;
+    private readonly IRoutingRuleRepository _ruleRepository;
+    private readonly ISettingsRepository _settingsRepository;
     private readonly RoutingRuleService _routing;
     private readonly string _dataRoot;
-    private readonly Label _status = new() { AutoSize = true, Font = new Font("Segoe UI", 18, FontStyle.Bold), Text = "Disconnected" };
-    private readonly Label _profile = new() { AutoSize = true, ForeColor = Color.DimGray, Text = "No server selected" };
-    private readonly Button _toggle = new() { Text = "Connect", Width = 160, Height = 42 };
-    private readonly TextBox _uri = new() { Dock = DockStyle.Top, PlaceholderText = "Paste vmess://, vless://, trojan:// or ss:// link" };
-    private readonly ListBox _serverList = new() { Dock = DockStyle.Fill };
-    private readonly DataGridView _apps = new() { Dock = DockStyle.Fill, AutoGenerateColumns = false, AllowUserToAddRows = false, ReadOnly = true };
+    private readonly Panel _content = new() { Dock = DockStyle.Fill, BackColor = Background };
+    private readonly Dictionary<string, Control> _pages = [];
+    private readonly Dictionary<string, Button> _navButtons = [];
+    private readonly Label _connectionBadge = MakeLabel("OFFLINE", 9, FontStyle.Bold, TextMuted);
+    private readonly Label _statusTitle = MakeLabel("Disconnected", 28, FontStyle.Bold, TextPrimary);
+    private readonly Label _profileLabel = MakeLabel("No active server", 11, FontStyle.Regular, TextMuted);
+    private readonly Label _connectionHint = MakeLabel("Import a compatible server, then connect.", 10, FontStyle.Regular, TextMuted);
+    private readonly Button _toggle = MakeButton("Connect", Accent, Color.White, 168, 46);
+    private readonly ComboBox _profilePicker = new();
+    private readonly TextBox _quickUri = MakeTextBox("Paste a VLESS, VMess, Trojan, Shadowsocks, SOCKS or HTTP link");
+    private readonly TextBox _uri = MakeTextBox("Paste a VLESS, VMess, Trojan, Shadowsocks, SOCKS or HTTP link");
+    private readonly TreeView _serverList = new();
+    private readonly TextBox _subscriptionName = MakeTextBox("Subscription name (optional)");
+    private readonly TextBox _subscriptionUrl = MakeTextBox("https://example.com/subscription");
+    private readonly Label _serverFeedback = MakeLabel("", 9, FontStyle.Bold, Accent);
+    private readonly Dictionary<Guid, ProfileLatency> _latencies = [];
+    private readonly TextBox _search = MakeTextBox("Search by app, executable or path...");
+    private readonly DataGridView _apps = new();
+    private readonly ComboBox _routingMode = new();
+    private readonly Label _appSummary = MakeLabel("Refresh to discover running applications", 9, FontStyle.Regular, TextMuted);
+    private readonly Label _routeFeedback = MakeLabel("", 9, FontStyle.Bold, Accent);
     private readonly NotifyIcon _tray;
+    private readonly List<RunningApplication> _allApplications = [];
+    private IReadOnlyList<ApplicationRoutingRule> _rules = [];
+    private AppSettings _settings = new();
+    private bool _updatingGrid;
 
     public MainForm(IServiceProvider services, string dataRoot)
     {
         _connection = services.GetRequiredService<IConnectionManager>();
         _profiles = services.GetRequiredService<IProfileRepository>();
         _importer = services.GetRequiredService<IProfileImporter>();
+        _subscriptionRepository = services.GetRequiredService<ISubscriptionRepository>();
+        _subscriptionService = services.GetRequiredService<ISubscriptionService>();
+        _latencyService = services.GetRequiredService<IProfileLatencyService>();
         _processes = services.GetRequiredService<IProcessDiscoveryService>();
+        _ruleRepository = services.GetRequiredService<IRoutingRuleRepository>();
+        _settingsRepository = services.GetRequiredService<ISettingsRepository>();
         _routing = services.GetRequiredService<RoutingRuleService>();
         _dataRoot = dataRoot;
 
-        Text = "FlowTunnel"; Width = 980; Height = 680; MinimumSize = new Size(760, 520);
-        Font = new Font("Segoe UI", 10); StartPosition = FormStartPosition.CenterScreen;
-        var tabs = new TabControl { Dock = DockStyle.Fill };
-        tabs.TabPages.Add(BuildDashboard()); tabs.TabPages.Add(BuildServers()); tabs.TabPages.Add(BuildApplications()); tabs.TabPages.Add(BuildLogs());
-        Controls.Add(tabs);
+        Text = "FlowTunnel";
+        Width = 1180;
+        Height = 760;
+        MinimumSize = new Size(940, 620);
+        StartPosition = FormStartPosition.CenterScreen;
+        BackColor = Background;
+        ForeColor = TextPrimary;
+        Font = new Font("Segoe UI", 10);
+        KeyPreview = true;
+
+        Controls.Add(_content);
+        Controls.Add(BuildSidebar());
+        BuildPages();
+        ShowPage("Dashboard");
 
         _tray = new NotifyIcon { Icon = SystemIcons.Shield, Text = "FlowTunnel", Visible = true };
-        _tray.DoubleClick += (_, _) => { Show(); WindowState = FormWindowState.Normal; Activate(); };
+        _tray.DoubleClick += (_, _) => RestoreWindow();
         _tray.ContextMenuStrip = new ContextMenuStrip();
-        _tray.ContextMenuStrip.Items.Add("Open", null, (_, _) => { Show(); Activate(); });
+        _tray.ContextMenuStrip.Items.Add("Open FlowTunnel", null, (_, _) => RestoreWindow());
         _tray.ContextMenuStrip.Items.Add("Exit", null, (_, _) => { _tray.Visible = false; System.Windows.Forms.Application.Exit(); });
         Resize += (_, _) => { if (WindowState == FormWindowState.Minimized) Hide(); };
         FormClosed += (_, _) => _tray.Dispose();
-        _connection.StateChanged += (_, snapshot) => BeginInvoke(() => Apply(snapshot));
-        Shown += async (_, _) => { await RefreshServersAsync(); Apply(_connection.Snapshot); };
-    }
-
-    private TabPage BuildDashboard()
-    {
-        var page = new TabPage("Dashboard") { Padding = new Padding(32) };
-        var layout = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false };
-        layout.Controls.Add(new Label { Text = "FlowTunnel", AutoSize = true, Font = new Font("Segoe UI", 28, FontStyle.Bold), Margin = new Padding(0, 0, 0, 24) });
-        layout.Controls.Add(_status); layout.Controls.Add(_profile); layout.Controls.Add(_toggle);
-        _toggle.Margin = new Padding(0, 24, 0, 0); _toggle.Click += async (_, _) => await ToggleAsync();
-        page.Controls.Add(layout); return page;
-    }
-
-    private TabPage BuildServers()
-    {
-        var page = new TabPage("Servers") { Padding = new Padding(18) };
-        var import = new Button { Text = "Import", Dock = DockStyle.Top, Height = 36 };
-        import.Click += async (_, _) =>
+        KeyDown += (_, e) => { if (e.Control && e.KeyCode == Keys.K) { ShowPage("Applications"); _search.Focus(); e.SuppressKeyPress = true; } };
+        _connection.StateChanged += (_, snapshot) => BeginInvoke(() => ApplyConnection(snapshot));
+        Shown += async (_, _) =>
         {
-            try { var items = (await _profiles.GetAllAsync(CancellationToken.None)).ToList(); items.Add(_importer.ImportUri(_uri.Text)); await _profiles.SaveAllAsync(items, CancellationToken.None); _uri.Clear(); await RefreshServersAsync(); }
-            catch (Exception ex) { MessageBox.Show(this, ex.Message, "Import failed", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+            _settings = await _settingsRepository.GetAsync(CancellationToken.None);
+            _routingMode.SelectedIndex = _settings.RoutingMode == RoutingMode.OnlySelectedUseVpn ? 0 : 1;
+            await RefreshServersAsync();
+            await RefreshApplicationsAsync();
+            ApplyConnection(_connection.Snapshot);
         };
-        page.Controls.Add(_serverList); page.Controls.Add(import); page.Controls.Add(_uri); return page;
     }
 
-    private TabPage BuildApplications()
+    private Panel BuildSidebar()
     {
-        var page = new TabPage("Applications") { Padding = new Padding(12) };
-        _apps.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Application", Width = 220 });
-        _apps.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Executable", Width = 220 });
-        _apps.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Processes", Width = 90 });
-        _apps.Columns.Add(new DataGridViewButtonColumn { HeaderText = "Route", Text = "Use VPN", UseColumnTextForButtonValue = true, Width = 100 });
-        _apps.Columns.Add(new DataGridViewButtonColumn { Text = "Direct", UseColumnTextForButtonValue = true, Width = 90 });
-        _apps.CellContentClick += async (_, e) =>
+        var panel = new Panel { Dock = DockStyle.Left, Width = 220, BackColor = Sidebar, Padding = new Padding(16, 20, 16, 16) };
+        var brand = MakeLabel("FLOWTUNNEL", 16, FontStyle.Bold, TextPrimary);
+        brand.Location = new Point(20, 23);
+        var subtitle = MakeLabel("PRIVATE ROUTING", 8, FontStyle.Bold, TextMuted);
+        subtitle.Location = new Point(21, 52);
+        panel.Controls.Add(brand);
+        panel.Controls.Add(subtitle);
+
+        var nav = new FlowLayoutPanel { Location = new Point(12, 100), Width = 196, Height = 300, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Sidebar };
+        foreach (var item in new[] { "Dashboard", "Servers", "Applications", "Logs" })
         {
-            if (e.RowIndex < 0 || _apps.Rows[e.RowIndex].Tag is not RunningApplication app) return;
-            if (e.ColumnIndex == 3) await _routing.SetRouteAsync(app.Identity, app.DisplayName, ApplicationRoute.Vpn, CancellationToken.None);
-            if (e.ColumnIndex == 4) await _routing.SetRouteAsync(app.Identity, app.DisplayName, ApplicationRoute.Direct, CancellationToken.None);
-        };
-        var refresh = new Button { Text = "Refresh running applications", Dock = DockStyle.Top, Height = 38 };
-        refresh.Click += async (_, _) => await RefreshApplicationsAsync();
-        page.Controls.Add(_apps); page.Controls.Add(refresh); return page;
+            var button = MakeNavButton(item);
+            button.Click += (_, _) => ShowPage(item);
+            nav.Controls.Add(button);
+            _navButtons[item] = button;
+        }
+        panel.Controls.Add(nav);
+
+        var footer = MakeLabel("Ctrl + K  Search apps", 9, FontStyle.Regular, TextMuted);
+        footer.AutoSize = false;
+        footer.Dock = DockStyle.Bottom;
+        footer.Height = 34;
+        footer.TextAlign = ContentAlignment.MiddleCenter;
+        panel.Controls.Add(footer);
+        return panel;
     }
 
-    private TabPage BuildLogs()
+    private void BuildPages()
     {
-        var page = new TabPage("Logs") { Padding = new Padding(18) };
-        var open = new Button { Text = "Open logs folder", Width = 180, Height = 38 };
+        _pages["Dashboard"] = BuildDashboard();
+        _pages["Servers"] = BuildServers();
+        _pages["Applications"] = BuildApplications();
+        _pages["Logs"] = BuildLogs();
+        foreach (var page in _pages.Values) { page.Dock = DockStyle.Fill; page.Visible = false; _content.Controls.Add(page); }
+    }
+
+    private Control BuildDashboard()
+    {
+        var page = Page("Connection overview", "Control the tunnel and see its current state at a glance.");
+        var body = (Panel)page.Controls[0];
+        var card = new RoundedPanel { Location = new Point(36, 126), Size = new Size(650, 292), BackColor = Surface, Radius = 18, Padding = new Padding(32) };
+        _connectionBadge.AutoSize = false; _connectionBadge.Size = new Size(96, 28); _connectionBadge.TextAlign = ContentAlignment.MiddleCenter; _connectionBadge.BackColor = SurfaceRaised; _connectionBadge.Location = new Point(32, 30);
+        _statusTitle.Location = new Point(30, 78); _profileLabel.Location = new Point(33, 128);
+        _connectionHint.AutoSize = false; _connectionHint.Size = new Size(570, 44); _connectionHint.Location = new Point(33, 160);
+        _toggle.Location = new Point(32, 220); _toggle.Click += async (_, _) => await ToggleAsync();
+        card.Controls.AddRange([_connectionBadge, _statusTitle, _profileLabel, _connectionHint, _toggle]);
+        body.Controls.Add(card);
+
+        var privacy = new RoundedPanel { Location = new Point(712, 126), Size = new Size(300, 292), BackColor = Surface, Radius = 18, Padding = new Padding(26) };
+        var privacyTitle = MakeLabel("Routing model", 14, FontStyle.Bold, TextPrimary); privacyTitle.Location = new Point(24, 28);
+        var privacyBody = MakeLabel("Only the applications you mark as VPN are tunneled by default. Rules persist after applications restart.", 10, FontStyle.Regular, TextMuted);
+        privacyBody.AutoSize = false; privacyBody.Size = new Size(248, 110); privacyBody.Location = new Point(25, 74);
+        var secure = MakeLabel("PROCESS-AWARE", 9, FontStyle.Bold, Accent); secure.Location = new Point(25, 220);
+        privacy.Controls.AddRange([privacyTitle, privacyBody, secure]); body.Controls.Add(privacy);
+
+        var profiles = new RoundedPanel { Location = new Point(36, 442), Size = new Size(976, 190), BackColor = Surface, Radius = 18, Padding = new Padding(24) };
+        var profilesTitle = MakeLabel("Server", 14, FontStyle.Bold, TextPrimary); profilesTitle.Location = new Point(24, 20);
+        var profilesHint = MakeLabel("Add, select, activate or remove a configuration without leaving this page.", 9, FontStyle.Regular, TextMuted); profilesHint.Location = new Point(24, 49);
+        ConfigureProfilePicker(); _profilePicker.Location = new Point(24, 80); _profilePicker.Size = new Size(430, 36);
+        var activate = MakeButton("Activate", Blue, Color.White, 112, 38); activate.Location = new Point(470, 78); activate.Click += async (_, _) => await ActivatePickedProfileAsync();
+        var delete = MakeButton("Remove", SurfaceRaised, TextPrimary, 104, 38); delete.Location = new Point(594, 78); delete.Click += async (_, _) => await RemovePickedProfileAsync();
+        _quickUri.Location = new Point(24, 134); _quickUri.Size = new Size(674, 36); _quickUri.AccessibleName = "Quick configuration link";
+        var add = MakeButton("Add config", Accent, Color.White, 150, 38); add.Location = new Point(716, 132); add.Click += async (_, _) => await QuickAddProfileAsync();
+        var manage = MakeButton("Subscriptions", SurfaceRaised, TextPrimary, 154, 38); manage.Location = new Point(802, 78); manage.Click += (_, _) => ShowPage("Servers");
+        profiles.Controls.AddRange([profilesTitle, profilesHint, _profilePicker, activate, delete, _quickUri, add, manage]); body.Controls.Add(profiles);
+        return page;
+    }
+
+    private Control BuildServers()
+    {
+        var page = Page("Servers & subscriptions", "Import one server or keep a complete subscription synchronized.");
+        var body = (Panel)page.Controls[0];
+        var importCard = new RoundedPanel { Location = new Point(36, 126), Size = new Size(976, 150), BackColor = Surface, Radius = 16, Padding = new Padding(24) };
+        var label = MakeLabel("Configuration link", 10, FontStyle.Bold, TextPrimary); label.Location = new Point(24, 22);
+        _uri.Location = new Point(24, 54); _uri.Size = new Size(750, 36); _uri.AccessibleName = "Configuration link";
+        var import = MakeButton("Import server", Accent, Color.White, 160, 38); import.Location = new Point(792, 52); import.Click += async (_, _) => await ImportServerAsync();
+        var help = MakeLabel("Supported transports include RAW/TCP, WebSocket, HTTP, gRPC, HTTPUpgrade and XHTTP powered by Xray.", 9, FontStyle.Regular, TextMuted);
+        help.Location = new Point(24, 104);
+        importCard.Controls.AddRange([label, _uri, import, help]); body.Controls.Add(importCard);
+
+        var subscriptionCard = new RoundedPanel { Location = new Point(36, 300), Size = new Size(976, 150), BackColor = Surface, Radius = 16, Padding = new Padding(24) };
+        var subscriptionTitle = MakeLabel("Add subscription", 10, FontStyle.Bold, TextPrimary); subscriptionTitle.Location = new Point(24, 20);
+        _subscriptionName.Location = new Point(24, 54); _subscriptionName.Size = new Size(230, 36); _subscriptionName.AccessibleName = "Subscription name";
+        _subscriptionUrl.Location = new Point(270, 54); _subscriptionUrl.Size = new Size(500, 36); _subscriptionUrl.AccessibleName = "Subscription URL";
+        var addSubscription = MakeButton("Add subscription", Accent, Color.White, 166, 38); addSubscription.Location = new Point(790, 52); addSubscription.Click += async (_, _) => await AddSubscriptionAsync(addSubscription);
+        var subscriptionHelp = MakeLabel("Base64 and plain-text subscription lists are supported. Updating replaces only that subscription's servers.", 9, FontStyle.Regular, TextMuted); subscriptionHelp.Location = new Point(24, 104);
+        subscriptionCard.Controls.AddRange([subscriptionTitle, _subscriptionName, _subscriptionUrl, addSubscription, subscriptionHelp]); body.Controls.Add(subscriptionCard);
+
+        var listCard = new RoundedPanel { Location = new Point(36, 474), Size = new Size(976, 390), BackColor = Surface, Radius = 16, Padding = new Padding(20) };
+        ConfigureServerList(); _serverList.Location = new Point(20, 56); _serverList.Size = new Size(936, 260);
+        var title = MakeLabel("Profiles grouped by subscription", 13, FontStyle.Bold, TextPrimary); title.Location = new Point(20, 20);
+        var active = MakeButton("Set active", Blue, Color.White, 124, 38); active.Location = new Point(20, 334); active.Click += async (_, _) => await SetActiveServerAsync();
+        var update = MakeButton("Update subscription", AccentDark, Color.White, 176, 38); update.Location = new Point(156, 334); update.Click += async (_, _) => await UpdateSelectedSubscriptionAsync(update);
+        var ping = MakeButton("Test all latency", SurfaceRaised, TextPrimary, 150, 38); ping.Location = new Point(344, 334); ping.Click += async (_, _) => await PingAllAsync(ping);
+        var remove = MakeButton("Remove", SurfaceRaised, TextPrimary, 112, 38); remove.Location = new Point(506, 334); remove.Click += async (_, _) => await RemoveServerAsync();
+        _serverFeedback.Location = new Point(634, 342); _serverFeedback.AutoSize = false; _serverFeedback.Size = new Size(300, 24); _serverFeedback.TextAlign = ContentAlignment.MiddleRight;
+        listCard.Controls.AddRange([title, _serverList, active, update, ping, remove, _serverFeedback]); body.Controls.Add(listCard);
+        return page;
+    }
+
+    private Control BuildApplications()
+    {
+        var page = Page("Application routing", "Search every running process and choose an explicit route. Changes apply immediately.");
+        var body = (Panel)page.Controls[0];
+        var toolbar = new RoundedPanel { Location = new Point(36, 126), Size = new Size(976, 104), BackColor = Surface, Radius = 16 };
+        _search.Location = new Point(20, 20); _search.Size = new Size(430, 36); _search.AccessibleName = "Search running applications"; _search.TextChanged += (_, _) => RenderApplications();
+        var searchHint = MakeLabel("Search updates instantly", 8, FontStyle.Regular, TextMuted); searchHint.Location = new Point(22, 65);
+        ConfigureRoutingMode(); _routingMode.Location = new Point(470, 20); _routingMode.Size = new Size(310, 36);
+        var refresh = MakeButton("Refresh", Blue, Color.White, 156, 38); refresh.Location = new Point(800, 19); refresh.Click += async (_, _) => await RefreshApplicationsAsync();
+        toolbar.Controls.AddRange([_search, searchHint, _routingMode, refresh]); body.Controls.Add(toolbar);
+
+        var gridCard = new RoundedPanel { Location = new Point(36, 252), Size = new Size(976, 386), BackColor = Surface, Radius = 16, Padding = new Padding(16) };
+        ConfigureApplicationsGrid(); _apps.Location = new Point(16, 16); _apps.Size = new Size(944, 314);
+        _appSummary.Location = new Point(18, 345); _routeFeedback.Location = new Point(640, 345); _routeFeedback.AutoSize = false; _routeFeedback.Size = new Size(300, 24); _routeFeedback.TextAlign = ContentAlignment.MiddleRight;
+        gridCard.Controls.AddRange([_apps, _appSummary, _routeFeedback]); body.Controls.Add(gridCard);
+        return page;
+    }
+
+    private Control BuildLogs()
+    {
+        var page = Page("Logs & diagnostics", "Use logs when a server cannot connect or the engine exits unexpectedly.");
+        var body = (Panel)page.Controls[0];
+        var card = new RoundedPanel { Location = new Point(36, 126), Size = new Size(620, 180), BackColor = Surface, Radius = 16, Padding = new Padding(24) };
+        var title = MakeLabel("Local diagnostic files", 14, FontStyle.Bold, TextPrimary); title.Location = new Point(24, 24);
+        var copy = MakeLabel("Logs stay on this computer unless you choose to share them.", 10, FontStyle.Regular, TextMuted); copy.Location = new Point(24, 62);
+        var open = MakeButton("Open logs folder", Blue, Color.White, 180, 40); open.Location = new Point(24, 108);
         open.Click += (_, _) => System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Path.Combine(_dataRoot, "Logs")) { UseShellExecute = true });
-        page.Controls.Add(open); return page;
+        card.Controls.AddRange([title, copy, open]); body.Controls.Add(card); return page;
+    }
+
+    private static Panel Page(string title, string subtitle)
+    {
+        var page = new Panel { BackColor = Background };
+        var body = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Background };
+        var heading = MakeLabel(title, 22, FontStyle.Bold, TextPrimary); heading.Location = new Point(36, 34);
+        var description = MakeLabel(subtitle, 10, FontStyle.Regular, TextMuted); description.Location = new Point(38, 78);
+        body.Controls.AddRange([heading, description]); page.Controls.Add(body); return page;
+    }
+
+    private void ConfigureServerList()
+    {
+        _serverList.HideSelection = false; _serverList.BorderStyle = BorderStyle.None; _serverList.ShowLines = true; _serverList.ShowRootLines = true;
+        _serverList.BackColor = SurfaceRaised; _serverList.ForeColor = TextPrimary; _serverList.Font = new Font("Segoe UI", 10); _serverList.ItemHeight = 30;
+        _serverList.AccessibleName = "Subscriptions and proxy profiles";
+    }
+
+    private void ConfigureRoutingMode()
+    {
+        _routingMode.DropDownStyle = ComboBoxStyle.DropDownList; _routingMode.FlatStyle = FlatStyle.Flat; _routingMode.BackColor = SurfaceRaised; _routingMode.ForeColor = TextPrimary;
+        _routingMode.Items.AddRange(["Selected apps use VPN", "All apps use VPN except Direct"]);
+        _routingMode.AccessibleName = "Default routing mode";
+        _routingMode.SelectedIndexChanged += async (_, _) =>
+        {
+            if (_routingMode.SelectedIndex < 0) return;
+            var mode = _routingMode.SelectedIndex == 0 ? RoutingMode.OnlySelectedUseVpn : RoutingMode.AllUseVpnExceptSelected;
+            if (mode == _settings.RoutingMode) return;
+            _settings = _settings with { RoutingMode = mode };
+            await _settingsRepository.SaveAsync(_settings, CancellationToken.None);
+            await _connection.ReapplyRoutingAsync(CancellationToken.None);
+            RenderApplications();
+            ShowRouteFeedback("Routing mode applied");
+        };
+    }
+
+    private void ConfigureProfilePicker()
+    {
+        _profilePicker.DropDownStyle = ComboBoxStyle.DropDownList; _profilePicker.FlatStyle = FlatStyle.Flat; _profilePicker.BackColor = SurfaceRaised; _profilePicker.ForeColor = TextPrimary;
+        _profilePicker.DisplayMember = nameof(ProfileChoice.Label); _profilePicker.AccessibleName = "Selected server profile";
+    }
+
+    private void ConfigureApplicationsGrid()
+    {
+        _apps.AllowUserToAddRows = false; _apps.AllowUserToDeleteRows = false; _apps.AllowUserToResizeRows = false; _apps.AutoGenerateColumns = false; _apps.ReadOnly = false;
+        _apps.BackgroundColor = Surface; _apps.BorderStyle = BorderStyle.None; _apps.GridColor = Border; _apps.RowHeadersVisible = false; _apps.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+        _apps.EnableHeadersVisualStyles = false; _apps.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle { BackColor = SurfaceRaised, ForeColor = TextMuted, Font = new Font("Segoe UI", 9, FontStyle.Bold), SelectionBackColor = SurfaceRaised, Padding = new Padding(8) };
+        _apps.DefaultCellStyle = new DataGridViewCellStyle { BackColor = Surface, ForeColor = TextPrimary, SelectionBackColor = Color.FromArgb(35, 58, 82), SelectionForeColor = TextPrimary, Padding = new Padding(8), Font = new Font("Segoe UI", 9.5f) };
+        _apps.AlternatingRowsDefaultCellStyle = new DataGridViewCellStyle { BackColor = Color.FromArgb(22, 31, 48), ForeColor = TextPrimary, SelectionBackColor = Color.FromArgb(35, 58, 82), SelectionForeColor = TextPrimary, Padding = new Padding(8) };
+        _apps.RowTemplate.Height = 46; _apps.ColumnHeadersHeight = 44; _apps.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+        _apps.Columns.Add(new DataGridViewTextBoxColumn { Name = "App", HeaderText = "APPLICATION", FillWeight = 145, ReadOnly = true });
+        _apps.Columns.Add(new DataGridViewTextBoxColumn { Name = "Executable", HeaderText = "EXECUTABLE", FillWeight = 120, ReadOnly = true });
+        _apps.Columns.Add(new DataGridViewTextBoxColumn { Name = "Instances", HeaderText = "INSTANCES", FillWeight = 54, ReadOnly = true });
+        _apps.Columns.Add(new DataGridViewComboBoxColumn { Name = "Rule", HeaderText = "RULE", FillWeight = 86, FlatStyle = FlatStyle.Flat, DataSource = Enum.GetValues<ApplicationRoute>() });
+        _apps.Columns.Add(new DataGridViewTextBoxColumn { Name = "Effective", HeaderText = "EFFECTIVE ROUTE", FillWeight = 90, ReadOnly = true });
+        _apps.CurrentCellDirtyStateChanged += (_, _) => { if (_apps.IsCurrentCellDirty) _apps.CommitEdit(DataGridViewDataErrorContexts.Commit); };
+        _apps.CellValueChanged += async (_, e) => await RouteCellChangedAsync(e);
+        _apps.CellFormatting += (_, e) =>
+        {
+            if (_apps.Columns[e.ColumnIndex].Name != "Effective" || e.Value is not string route) return;
+            e.CellStyle.ForeColor = route == "VPN" ? Accent : Blue;
+            e.CellStyle.Font = new Font("Segoe UI", 9, FontStyle.Bold);
+        };
+        _apps.DataError += (_, e) => e.ThrowException = false;
+        _apps.AccessibleName = "Running applications and routing rules";
     }
 
     private async Task ToggleAsync()
     {
-        _toggle.Enabled = false;
+        _toggle.Enabled = false; _connectionHint.ForeColor = TextMuted;
         try
         {
             if (_connection.Snapshot.State == ConnectionState.Connected) await _connection.DisconnectAsync(CancellationToken.None);
@@ -108,30 +317,248 @@ internal sealed class MainForm : Form
                 await _connection.ConnectAsync(selected, CancellationToken.None);
             }
         }
-        catch (Exception ex) { MessageBox.Show(this, ex.Message, "FlowTunnel", MessageBoxButtons.OK, MessageBoxIcon.Error); }
-        finally { _toggle.Enabled = true; Apply(_connection.Snapshot); }
+        catch (Exception ex)
+        {
+            var message = FriendlyError(ex.Message); _connectionHint.Text = message; _connectionHint.ForeColor = Danger;
+            MessageBox.Show(this, message, "Connection failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally { _toggle.Enabled = true; ApplyConnection(_connection.Snapshot); }
     }
 
-    private void Apply(ConnectionSnapshot snapshot)
+    private async Task ImportServerAsync()
     {
-        _status.Text = snapshot.State.ToString(); _profile.Text = snapshot.ProfileName ?? "No server selected";
-        _toggle.Text = snapshot.State == ConnectionState.Connected ? "Disconnect" : "Connect";
-        _tray.Text = $"FlowTunnel - {snapshot.State}";
+        try
+        {
+            var profile = _importer.ImportUri(_uri.Text);
+            var items = (await _profiles.GetAllAsync(CancellationToken.None)).ToList();
+            if (items.Count == 0) profile = profile with { IsDefault = true };
+            items.Add(profile); await _profiles.SaveAllAsync(items, CancellationToken.None); _uri.Clear(); await RefreshServersAsync();
+        }
+        catch (Exception ex) when (ex is FormatException or NotSupportedException or ArgumentException)
+        {
+            MessageBox.Show(this, ex.Message, "Configuration not supported", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    private async Task QuickAddProfileAsync()
+    {
+        _uri.Text = _quickUri.Text;
+        await ImportServerAsync();
+        _quickUri.Clear();
+    }
+
+    private async Task ActivatePickedProfileAsync()
+    {
+        if (_profilePicker.SelectedItem is not ProfileChoice choice) return;
+        var items = (await _profiles.GetAllAsync(CancellationToken.None)).Select(p => p with { IsDefault = p.Id == choice.Profile.Id }).ToArray();
+        await _profiles.SaveAllAsync(items, CancellationToken.None); await RefreshServersAsync();
+    }
+
+    private async Task RemovePickedProfileAsync()
+    {
+        if (_profilePicker.SelectedItem is not ProfileChoice choice) return;
+        var items = (await _profiles.GetAllAsync(CancellationToken.None)).Where(p => p.Id != choice.Profile.Id).ToList();
+        if (items.Count > 0 && items.All(p => !p.IsDefault)) items[0] = items[0] with { IsDefault = true };
+        await _profiles.SaveAllAsync(items, CancellationToken.None); await RefreshServersAsync();
+    }
+
+    private async Task SetActiveServerAsync()
+    {
+        if (_serverList.SelectedNode?.Tag is not ProxyProfile selected) return;
+        var items = (await _profiles.GetAllAsync(CancellationToken.None)).Select(p => p with { IsDefault = p.Id == selected.Id }).ToArray();
+        await _profiles.SaveAllAsync(items, CancellationToken.None); await RefreshServersAsync();
+    }
+
+    private async Task RemoveServerAsync()
+    {
+        if (_serverList.SelectedNode?.Tag is ProxySubscription subscription)
+        {
+            if (MessageBox.Show(this, $"Remove '{subscription.Name}' and all of its profiles?", "Remove subscription", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes)
+            { await _subscriptionService.RemoveAsync(subscription.Id, CancellationToken.None); await RefreshServersAsync(); }
+            return;
+        }
+        if (_serverList.SelectedNode?.Tag is not ProxyProfile selected) return;
+        var items = (await _profiles.GetAllAsync(CancellationToken.None)).Where(p => p.Id != selected.Id).ToList();
+        if (items.Count > 0 && items.All(p => !p.IsDefault)) items[0] = items[0] with { IsDefault = true };
+        await _profiles.SaveAllAsync(items, CancellationToken.None); await RefreshServersAsync();
     }
 
     private async Task RefreshServersAsync()
     {
-        var items = await _profiles.GetAllAsync(CancellationToken.None); _serverList.Items.Clear();
-        foreach (var item in items) _serverList.Items.Add($"{item.Name} — {item.Protocol} — {item.Server}:{item.Port}");
-        _profile.Text = items.FirstOrDefault(p => p.IsDefault)?.Name ?? items.FirstOrDefault()?.Name ?? "No server selected";
+        var items = await _profiles.GetAllAsync(CancellationToken.None);
+        var subscriptions = await _subscriptionRepository.GetAllAsync(CancellationToken.None);
+        _serverList.BeginUpdate(); _serverList.Nodes.Clear();
+        var manual = new TreeNode("Manual profiles") { ForeColor = TextMuted };
+        foreach (var item in items.Where(x => x.SubscriptionId is null)) manual.Nodes.Add(ProfileNode(item));
+        if (manual.Nodes.Count > 0) _serverList.Nodes.Add(manual);
+        foreach (var subscription in subscriptions.OrderBy(x => x.Name))
+        {
+            var updated = subscription.LastUpdatedAt?.LocalDateTime.ToString("g") ?? "Never";
+            var root = new TreeNode($"{subscription.Name}  •  Updated {updated}") { Tag = subscription, ForeColor = Accent };
+            foreach (var item in items.Where(x => x.SubscriptionId == subscription.Id)) root.Nodes.Add(ProfileNode(item));
+            _serverList.Nodes.Add(root);
+        }
+        _serverList.ExpandAll(); _serverList.EndUpdate();
+        var current = items.FirstOrDefault(p => p.IsDefault) ?? items.FirstOrDefault();
+        _profileLabel.Text = current is null ? "No active server" : current.Name;
+        _profilePicker.BeginUpdate(); _profilePicker.Items.Clear();
+        foreach (var item in items) _profilePicker.Items.Add(new ProfileChoice(item, $"{(item.IsDefault ? "ACTIVE • " : "")}{item.Name} — {item.Protocol}/{item.Transport?.Type ?? "raw"}"));
+        if (_profilePicker.Items.Count > 0) _profilePicker.SelectedIndex = Math.Max(0, items.ToList().FindIndex(x => x.IsDefault));
+        _profilePicker.EndUpdate();
+    }
+
+    private TreeNode ProfileNode(ProxyProfile profile)
+    {
+        var state = profile.IsDefault ? "ACTIVE" : "Saved";
+        var latency = _latencies.TryGetValue(profile.Id, out var result) ? result.IsReachable ? $"{Math.Round(result.Duration!.Value.TotalMilliseconds)} ms" : result.Error : "Not tested";
+        return new TreeNode($"{profile.Name}   [{profile.Protocol} · {profile.Transport?.Type ?? "raw"}]   {profile.Server}:{profile.Port}   • {latency}   • {state}") { Tag = profile, ForeColor = profile.IsDefault ? Accent : TextPrimary };
+    }
+
+    private async Task AddSubscriptionAsync(Button button)
+    {
+        if (string.IsNullOrWhiteSpace(_subscriptionUrl.Text)) { MessageBox.Show(this, "Enter a subscription URL.", "Subscription", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+        button.Enabled = false; _serverFeedback.Text = "Downloading subscription...";
+        try
+        {
+            await _subscriptionService.AddOrUpdateAsync(new ProxySubscription(Guid.NewGuid(), _subscriptionName.Text, _subscriptionUrl.Text.Trim(), null), CancellationToken.None);
+            _subscriptionName.Clear(); _subscriptionUrl.Clear(); _serverFeedback.Text = "Subscription added"; await RefreshServersAsync();
+        }
+        catch (Exception ex) { _serverFeedback.Text = "Update failed"; MessageBox.Show(this, FriendlyError(ex.Message), "Subscription failed", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        finally { button.Enabled = true; }
+    }
+
+    private async Task UpdateSelectedSubscriptionAsync(Button button)
+    {
+        var subscription = _serverList.SelectedNode?.Tag as ProxySubscription ?? _serverList.SelectedNode?.Parent?.Tag as ProxySubscription;
+        if (subscription is null) { _serverFeedback.Text = "Select a subscription or one of its profiles"; return; }
+        button.Enabled = false; _serverFeedback.Text = "Updating subscription...";
+        try { await _subscriptionService.AddOrUpdateAsync(subscription, CancellationToken.None); _serverFeedback.Text = "Subscription updated"; await RefreshServersAsync(); }
+        catch (Exception ex) { _serverFeedback.Text = "Update failed"; MessageBox.Show(this, FriendlyError(ex.Message), "Subscription failed", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        finally { button.Enabled = true; }
+    }
+
+    private async Task PingAllAsync(Button button)
+    {
+        button.Enabled = false; _serverFeedback.Text = "Testing real TCP latency...";
+        try
+        {
+            var profiles = await _profiles.GetAllAsync(CancellationToken.None);
+            using var gate = new SemaphoreSlim(6);
+            var tasks = profiles.Select(async profile =>
+            {
+                await gate.WaitAsync();
+                try { return await _latencyService.MeasureAsync(profile, TimeSpan.FromSeconds(4), CancellationToken.None); }
+                finally { gate.Release(); }
+            });
+            foreach (var latency in await Task.WhenAll(tasks)) _latencies[latency.ProfileId] = latency;
+            _serverFeedback.Text = $"Tested {profiles.Count} profiles"; await RefreshServersAsync();
+        }
+        finally { button.Enabled = true; }
     }
 
     private async Task RefreshApplicationsAsync()
     {
-        _apps.Rows.Clear();
-        foreach (var app in await _processes.GetRunningApplicationsAsync(CancellationToken.None))
+        _appSummary.Text = "Discovering running applications...";
+        var appsTask = _processes.GetRunningApplicationsAsync(CancellationToken.None);
+        var rulesTask = _ruleRepository.GetAllAsync(CancellationToken.None);
+        await Task.WhenAll(appsTask, rulesTask);
+        _allApplications.Clear(); _allApplications.AddRange(await appsTask); _rules = await rulesTask;
+        RenderApplications();
+    }
+
+    private void RenderApplications()
+    {
+        if (_apps.Columns.Count == 0) return;
+        _updatingGrid = true; _apps.Rows.Clear();
+        var query = _search.Text.Trim();
+        var filtered = _allApplications.Where(app => query.Length == 0 || app.DisplayName.Contains(query, StringComparison.CurrentCultureIgnoreCase) || app.Identity.ExecutableName.Contains(query, StringComparison.OrdinalIgnoreCase) || (app.Identity.ExecutablePath?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false)).ToArray();
+        foreach (var app in filtered)
         {
-            var index = _apps.Rows.Add(app.DisplayName, app.Identity.ExecutableName, app.ProcessCount); _apps.Rows[index].Tag = app;
+            var explicitRule = _rules.FirstOrDefault(r => r.Enabled && r.Identity.StableKey == app.Identity.StableKey);
+            var configured = explicitRule?.Route ?? ApplicationRoute.Default;
+            var effective = _routing.Resolve(app.Identity, _settings.RoutingMode, _rules);
+            var index = _apps.Rows.Add(app.DisplayName, app.Identity.ExecutableName, app.ProcessCount, configured, effective == ApplicationRoute.Vpn ? "VPN" : "DIRECT");
+            _apps.Rows[index].Tag = app;
         }
+        _updatingGrid = false;
+        _appSummary.Text = filtered.Length == 0 ? "No matching processes. Try a shorter name or refresh the list." : $"Showing {filtered.Length} of {_allApplications.Count} running applications";
+    }
+
+    private async Task RouteCellChangedAsync(DataGridViewCellEventArgs e)
+    {
+        if (_updatingGrid || e.RowIndex < 0 || _apps.Columns[e.ColumnIndex].Name != "Rule" || _apps.Rows[e.RowIndex].Tag is not RunningApplication app) return;
+        if (_apps.Rows[e.RowIndex].Cells[e.ColumnIndex].Value is not ApplicationRoute route) return;
+        try
+        {
+            await _routing.SetRouteAsync(app.Identity, app.DisplayName, route, CancellationToken.None);
+            _rules = await _ruleRepository.GetAllAsync(CancellationToken.None); RenderApplications(); ShowRouteFeedback($"{app.DisplayName}: {route} applied");
+        }
+        catch (Exception ex) { MessageBox.Show(this, FriendlyError(ex.Message), "Could not apply route", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+    }
+
+    private void ShowRouteFeedback(string message)
+    {
+        _routeFeedback.Text = message;
+        var timer = new System.Windows.Forms.Timer { Interval = 3200 };
+        timer.Tick += (_, _) => { _routeFeedback.Text = ""; timer.Stop(); timer.Dispose(); };
+        timer.Start();
+    }
+
+    private void ApplyConnection(ConnectionSnapshot snapshot)
+    {
+        _statusTitle.Text = snapshot.State.ToString(); _profileLabel.Text = snapshot.ProfileName ?? _profileLabel.Text;
+        var connected = snapshot.State == ConnectionState.Connected;
+        _connectionBadge.Text = connected ? "PROTECTED" : snapshot.State == ConnectionState.Error ? "ERROR" : "OFFLINE";
+        _connectionBadge.ForeColor = connected ? Accent : snapshot.State == ConnectionState.Error ? Danger : TextMuted;
+        _toggle.Text = connected ? "Disconnect" : "Connect"; _toggle.BackColor = connected ? Danger : Accent; _toggle.FlatAppearance.MouseOverBackColor = connected ? Color.FromArgb(220, 38, 38) : AccentDark;
+        if (!string.IsNullOrWhiteSpace(snapshot.ErrorMessage)) { _connectionHint.Text = FriendlyError(snapshot.ErrorMessage); _connectionHint.ForeColor = Danger; }
+        else if (connected) { _connectionHint.Text = "Tunnel is active. Application rules are being enforced."; _connectionHint.ForeColor = TextMuted; }
+        else if (_connectionHint.ForeColor != Danger) _connectionHint.Text = "Import a compatible server, then connect.";
+        _tray.Text = $"FlowTunnel - {snapshot.State}";
+    }
+
+    private void ShowPage(string name)
+    {
+        foreach (var page in _pages) page.Value.Visible = page.Key == name;
+        foreach (var button in _navButtons) { button.Value.BackColor = button.Key == name ? SurfaceRaised : Sidebar; button.Value.ForeColor = button.Key == name ? TextPrimary : TextMuted; }
+        if (_pages.TryGetValue(name, out var selected)) selected.BringToFront();
+    }
+
+    private void RestoreWindow() { Show(); WindowState = FormWindowState.Normal; Activate(); }
+
+    private static string FriendlyError(string value)
+    {
+        var clean = Regex.Replace(value, "\\x1B(?:[@-Z\\\\-_]|\\[[0-?]*[ -/]*[@-~])", "").Trim();
+        return clean;
+    }
+
+    private static Label MakeLabel(string text, float size, FontStyle style, Color color) => new() { Text = text, AutoSize = true, Font = new Font("Segoe UI", size, style), ForeColor = color, BackColor = Color.Transparent };
+    private static TextBox MakeTextBox(string placeholder) => new() { PlaceholderText = placeholder, BorderStyle = BorderStyle.FixedSingle, BackColor = SurfaceRaised, ForeColor = TextPrimary, Font = new Font("Segoe UI", 10), AccessibleDescription = placeholder };
+    private static Button MakeButton(string text, Color back, Color fore, int width, int height)
+    {
+        var button = new Button { Text = text, Size = new Size(width, height), BackColor = back, ForeColor = fore, FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand, Font = new Font("Segoe UI", 10, FontStyle.Bold), AccessibleName = text };
+        button.FlatAppearance.BorderSize = 0; button.FlatAppearance.MouseOverBackColor = ControlPaint.Light(back, .08f); button.FlatAppearance.MouseDownBackColor = ControlPaint.Dark(back, .08f); return button;
+    }
+    private static Button MakeNavButton(string text)
+    {
+        var button = MakeButton(text, Sidebar, TextMuted, 196, 48); button.TextAlign = ContentAlignment.MiddleLeft; button.Padding = new Padding(18, 0, 0, 0); button.Margin = new Padding(0, 0, 0, 8); return button;
+    }
+}
+
+internal sealed record ProfileChoice(ProxyProfile Profile, string Label);
+
+internal sealed class RoundedPanel : Panel
+{
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public int Radius { get; set; } = 16;
+    protected override void OnResize(EventArgs eventargs) { base.OnResize(eventargs); using var path = Path(); Region = new Region(path); Invalidate(); }
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias; using var path = Path(); using var pen = new Pen(Color.FromArgb(52, 65, 88)); e.Graphics.DrawPath(pen, path); base.OnPaint(e);
+    }
+    private GraphicsPath Path()
+    {
+        var d = Radius * 2; var path = new GraphicsPath(); var rect = new Rectangle(0, 0, Math.Max(1, Width - 1), Math.Max(1, Height - 1));
+        path.AddArc(rect.X, rect.Y, d, d, 180, 90); path.AddArc(rect.Right - d, rect.Y, d, d, 270, 90); path.AddArc(rect.Right - d, rect.Bottom - d, d, d, 0, 90); path.AddArc(rect.X, rect.Bottom - d, d, d, 90, 90); path.CloseFigure(); return path;
     }
 }

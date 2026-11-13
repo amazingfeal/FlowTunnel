@@ -3,9 +3,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="${1:-$(tr -d '[:space:]' < "$ROOT/VERSION")}"
-SING_BOX_VERSION="1.14.4"
-SING_BOX_ZIP_SHA256="99185d75d314a07dbba4a130c8ad986cbeb629a07927975636b341ca61f991df"
-SING_BOX_URL="https://github.com/SagerNet/sing-box/releases/download/v${SING_BOX_VERSION}/sing-box-${SING_BOX_VERSION}-windows-amd64.zip"
+XRAY_VERSION="26.11.9"
+XRAY_ZIP_SHA256="1262522266337b824f07beb8e1375786b437683b3890105469088f8e17e0a69d"
+XRAY_URL="https://github.com/XTLS/Xray-core/releases/download/v${XRAY_VERSION}/Xray-windows-64.zip"
 OUTPUT="$ROOT/artifacts/FlowTunnel-x64.msi"
 
 if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -34,28 +34,28 @@ export DOTNET_CLI_HOME="$BUILD_ROOT/dotnet-home"
 export DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
 export DOTNET_CLI_TELEMETRY_OPTOUT=1
 
-ZIP="$BUILD_ROOT/sing-box.zip"
+ZIP="$BUILD_ROOT/xray.zip"
 ENGINE_DIR="$BUILD_ROOT/engine"
 DESKTOP_DIR="$BUILD_ROOT/desktop"
 SERVICE_DIR="$BUILD_ROOT/service"
 PAYLOAD_DIR="$BUILD_ROOT/payload"
 mkdir -p "$ENGINE_DIR" "$DESKTOP_DIR" "$SERVICE_DIR" "$PAYLOAD_DIR" "$ROOT/artifacts"
 
-echo "Downloading verified sing-box ${SING_BOX_VERSION}..."
-curl -fL --retry 3 -o "$ZIP" "$SING_BOX_URL"
+echo "Downloading verified Xray ${XRAY_VERSION}..."
+curl -fL --retry 3 -o "$ZIP" "$XRAY_URL"
 ACTUAL_ZIP_SHA256="$(shasum -a 256 "$ZIP" | awk '{print $1}')"
-if [[ "$ACTUAL_ZIP_SHA256" != "$SING_BOX_ZIP_SHA256" ]]; then
-  echo "sing-box archive hash mismatch: $ACTUAL_ZIP_SHA256" >&2
+if [[ "$ACTUAL_ZIP_SHA256" != "$XRAY_ZIP_SHA256" ]]; then
+  echo "Xray archive hash mismatch: $ACTUAL_ZIP_SHA256" >&2
   exit 1
 fi
 unzip -q "$ZIP" -d "$ENGINE_DIR"
-ENGINE_EXE="$(find "$ENGINE_DIR" -type f -name sing-box.exe -print -quit)"
+ENGINE_EXE="$(find "$ENGINE_DIR" -type f -iname xray.exe -print -quit)"
 ENGINE_LICENSE="$(find "$ENGINE_DIR" -type f -name LICENSE -print -quit)"
-[[ -n "$ENGINE_EXE" && -n "$ENGINE_LICENSE" ]] || { echo "Invalid sing-box archive." >&2; exit 1; }
-cp "$ENGINE_EXE" "$PAYLOAD_DIR/sing-box.exe"
-cp "$ENGINE_LICENSE" "$PAYLOAD_DIR/sing-box-LICENSE.txt"
-ENGINE_SHA256="$(shasum -a 256 "$PAYLOAD_DIR/sing-box.exe" | awk '{print $1}')"
-printf '{\n  "version": "%s",\n  "sha256": "%s"\n}\n' "$SING_BOX_VERSION" "$ENGINE_SHA256" > "$PAYLOAD_DIR/engine.json"
+[[ -n "$ENGINE_EXE" && -n "$ENGINE_LICENSE" ]] || { echo "Invalid Xray archive." >&2; exit 1; }
+cp "$ENGINE_EXE" "$PAYLOAD_DIR/xray.exe"
+cp "$ENGINE_LICENSE" "$PAYLOAD_DIR/xray-LICENSE.txt"
+ENGINE_SHA256="$(shasum -a 256 "$PAYLOAD_DIR/xray.exe" | awk '{print $1}')"
+printf '{\n  "version": "%s",\n  "sha256": "%s"\n}\n' "$XRAY_VERSION" "$ENGINE_SHA256" > "$PAYLOAD_DIR/engine.json"
 
 echo "Running tests..."
 for project in \
@@ -83,10 +83,10 @@ wixl -a x64 \
   -D ProductVersion="$VERSION" \
   -D DesktopExe="$DESKTOP_DIR/FlowTunnel.Desktop.exe" \
   -D ServiceExe="$SERVICE_DIR/FlowTunnel.Service.exe" \
-  -D SingBoxExe="$PAYLOAD_DIR/sing-box.exe" \
+  -D XrayExe="$PAYLOAD_DIR/xray.exe" \
   -D EngineMetadata="$PAYLOAD_DIR/engine.json" \
-  -D SingBoxLicense="$PAYLOAD_DIR/sing-box-LICENSE.txt" \
-  -o "$OUTPUT" "$ROOT/installer/Package.wixl.wxs"
+  -D XrayLicense="$PAYLOAD_DIR/xray-LICENSE.txt" \
+  --ext ui -o "$OUTPUT" "$ROOT/installer/Package.wixl.wxs" "$ROOT/installer/FlowTunnelUI.wxs"
 
 shasum -a 256 "$OUTPUT" > "$OUTPUT.sha256"
 echo "Built: $OUTPUT"

@@ -14,6 +14,7 @@ public interface IRepository<T>
 
 public interface IRoutingRuleRepository : IRepository<ApplicationRoutingRule> { }
 public interface IProfileRepository : IRepository<ProxyProfile> { }
+public interface ISubscriptionRepository : IRepository<ProxySubscription> { }
 public interface ISettingsRepository
 {
     Task<AppSettings> GetAsync(CancellationToken cancellationToken);
@@ -52,6 +53,17 @@ public interface IConnectionManager
 public interface IProfileImporter
 {
     ProxyProfile ImportUri(string value);
+}
+
+public interface ISubscriptionService
+{
+    Task<ProxySubscription> AddOrUpdateAsync(ProxySubscription subscription, CancellationToken cancellationToken);
+    Task RemoveAsync(Guid subscriptionId, CancellationToken cancellationToken);
+}
+
+public interface IProfileLatencyService
+{
+    Task<ProfileLatency> MeasureAsync(ProxyProfile profile, TimeSpan timeout, CancellationToken cancellationToken);
 }
 
 public interface INetworkDiagnostics

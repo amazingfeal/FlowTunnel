@@ -108,9 +108,15 @@ public sealed class SingBoxConfigurationGenerator : IProxyConfigurationGenerator
 
         if (profile.Transport is not null)
         {
+            if (profile.Transport.Type is not ("ws" or "http" or "grpc" or "quic" or "httpupgrade"))
+                throw new NotSupportedException($"Transport '{profile.Transport.Type}' is not supported by the bundled sing-box engine.");
             var transport = new JsonObject { ["type"] = profile.Transport.Type };
             if (!string.IsNullOrWhiteSpace(profile.Transport.Path)) transport["path"] = profile.Transport.Path;
-            if (!string.IsNullOrWhiteSpace(profile.Transport.Host)) transport["headers"] = new JsonObject { ["Host"] = profile.Transport.Host };
+            if (!string.IsNullOrWhiteSpace(profile.Transport.Host))
+            {
+                if (profile.Transport.Type == "http") transport["host"] = new JsonArray(profile.Transport.Host);
+                else if (profile.Transport.Type is "ws" or "httpupgrade") transport["headers"] = new JsonObject { ["Host"] = profile.Transport.Host };
+            }
             if (!string.IsNullOrWhiteSpace(profile.Transport.ServiceName)) transport["service_name"] = profile.Transport.ServiceName;
             outbound["transport"] = transport;
         }

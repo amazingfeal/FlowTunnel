@@ -4,6 +4,10 @@
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
     <MajorUpgrade DowngradeErrorMessage="A newer version of FlowTunnel is already installed." />
     <MediaTemplate EmbedCab="yes" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <Property Id="CREATE_DESKTOP_SHORTCUT" Value="1" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch FlowTunnel" />
 
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
@@ -15,6 +19,7 @@
       <Directory Id="ProgramMenuFolder">
         <Directory Id="ProgramMenuFlowTunnel" Name="FlowTunnel" />
       </Directory>
+      <Directory Id="DesktopFolder" />
     </Directory>
 
     <DirectoryRef Id="DesktopDir">
@@ -27,22 +32,35 @@
     <DirectoryRef Id="ServiceDir">
       <Component Id="ServiceComponent" Guid="*" Win64="yes">
         <File Id="ServiceExe" Source="$(var.ServiceExe)" KeyPath="yes" />
-        <ServiceInstall Id="InstallTunnelService" Name="FlowTunnel.Service" DisplayName="FlowTunnel Tunnel Service" Description="Runs the approved sing-box TUN engine with elevated privileges." Type="ownProcess" Start="auto" ErrorControl="normal" Account="LocalSystem" />
+        <ServiceInstall Id="InstallTunnelService" Name="FlowTunnel.Service" DisplayName="FlowTunnel Tunnel Service" Description="Runs the approved Xray TUN engine with elevated privileges." Type="ownProcess" Start="auto" ErrorControl="normal" Account="LocalSystem" />
         <ServiceControl Id="ControlTunnelService" Name="FlowTunnel.Service" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
       </Component>
     </DirectoryRef>
     <DirectoryRef Id="INSTALLFOLDER">
       <Component Id="EngineComponent" Guid="*" Win64="yes">
-        <File Id="SingBoxExe" Source="$(var.SingBoxExe)" KeyPath="yes" />
+        <File Id="XrayExe" Source="$(var.XrayExe)" KeyPath="yes" />
         <File Id="EngineMetadata" Source="$(var.EngineMetadata)" />
-        <File Id="SingBoxLicense" Source="$(var.SingBoxLicense)" />
+        <File Id="XrayLicense" Source="$(var.XrayLicense)" />
       </Component>
     </DirectoryRef>
+    <DirectoryRef Id="DesktopFolder">
+      <Component Id="DesktopShortcutComponent" Guid="*" Win64="yes">
+        <Condition>CREATE_DESKTOP_SHORTCUT = "1"</Condition>
+        <Shortcut Id="DesktopShortcut" Name="FlowTunnel" Description="FlowTunnel per-application VPN" Target="[DesktopDir]FlowTunnel.Desktop.exe" WorkingDirectory="DesktopDir" />
+        <RegistryValue Root="HKLM" Key="Software\FlowTunnel" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <CustomAction Id="LaunchFlowTunnel" FileKey="DesktopExe" ExeCommand="" Execute="immediate" Return="asyncNoWait" Impersonate="yes" />
+
+    <UIRef Id="FlowTunnelUI" />
+    <UIRef Id="WixUI_Common" />
 
     <Feature Id="MainFeature" Title="FlowTunnel" Level="1">
       <ComponentRef Id="DesktopComponent" />
       <ComponentRef Id="ServiceComponent" />
       <ComponentRef Id="EngineComponent" />
+      <ComponentRef Id="DesktopShortcutComponent" />
     </Feature>
   </Product>
 </Wix>
