@@ -19,7 +19,7 @@ internal static class Program
         ApplicationConfiguration.Initialize();
         var dataRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FlowTunnel");
         var runtimeRoot = Path.Combine(dataRoot, "Runtime");
-        var installRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "FlowTunnel");
+        var installRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, ".."));
         Directory.CreateDirectory(Path.Combine(dataRoot, "Logs"));
         Log.Logger = new LoggerConfiguration().MinimumLevel.Information()
             .WriteTo.File(Path.Combine(dataRoot, "Logs", "flowtunnel-.log"), rollingInterval: RollingInterval.Day, retainedFileCountLimit: 7)
