@@ -13,6 +13,7 @@ public interface IRepository<T>
 }
 
 public interface IRoutingRuleRepository : IRepository<ApplicationRoutingRule> { }
+public interface INetworkRoutingRuleRepository : IRepository<NetworkRoutingRule> { }
 public interface IProfileRepository : IRepository<ProxyProfile> { }
 public interface ISubscriptionRepository : IRepository<ProxySubscription> { }
 public interface ISettingsRepository
@@ -31,7 +32,7 @@ public interface IProxyEngine
 
 public interface IProxyConfigurationGenerator
 {
-    string Generate(ProxyProfile profile, RoutingMode mode, IReadOnlyCollection<ApplicationRoutingRule> rules, FailSafePolicy failSafePolicy);
+    string Generate(ProxyProfile profile, RoutingMode mode, IReadOnlyCollection<ApplicationRoutingRule> rules, IReadOnlyCollection<NetworkRoutingRule> networkRules, FailSafePolicy failSafePolicy);
 }
 
 public sealed record ValidationResult(bool IsValid, string? Error);

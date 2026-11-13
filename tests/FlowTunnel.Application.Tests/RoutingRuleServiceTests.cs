@@ -27,6 +27,22 @@ public sealed class RoutingRuleServiceTests
         Assert.Equal(ApplicationRoute.Vpn, service.Resolve(new("app.exe", @"C:\A\app.exe"), RoutingMode.OnlySelectedUseVpn, rules));
     }
 
+    [Theory]
+    [InlineData(ApplicationRoute.Vpn)]
+    [InlineData(ApplicationRoute.Direct)]
+    public async Task SetRouteAsync_PersistsExplicitSelection(ApplicationRoute route)
+    {
+        var repository = new MemoryRules();
+        var service = new RoutingRuleService(repository, new FakeConnection());
+        var identity = new ProcessIdentity("Discord.exe", @"C:\Apps\Discord.exe");
+
+        await service.SetRouteAsync(identity, "Discord", route, CancellationToken.None);
+
+        var saved = Assert.Single(repository.Items);
+        Assert.Equal(route, saved.Route);
+        Assert.Equal(identity.StableKey, saved.Identity.StableKey);
+    }
+
     private sealed class MemoryRules : IRoutingRuleRepository
     {
         public List<ApplicationRoutingRule> Items { get; } = [];

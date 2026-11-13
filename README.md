@@ -1,13 +1,13 @@
 # FlowTunnel
 
-FlowTunnel is a Windows 10/11 x64 desktop client for Xray with persistent per-application routing. It discovers foreground and background processes, groups executable instances, and produces validated Xray TUN configurations for either:
+FlowTunnel is a Windows 10/11 x64 desktop client for Xray with persistent per-application, domain, and IP/CIDR routing. It discovers foreground and background processes, groups executable instances, shows their Windows icons, and produces validated Xray TUN configurations for either:
 
 - only selected applications through the proxy, with everything else direct; or
 - all applications through the proxy, with selected applications direct.
 
 ## Current implementation
 
-The repository contains the clean-architecture solution, polished WinForms shell, subscriptions with refresh, grouped profile management, real TCP latency tests, process search and explicit VPN/Direct rules, VLESS/VMess/Trojan/Shadowsocks/SOCKS/HTTP URI import, XHTTP, VLESS + REALITY preservation, DPAPI-protected credentials, Xray integrity/config validation, and MSI packaging sources.
+The repository contains the clean-architecture solution, polished WinForms shell, subscriptions with refresh, grouped profile management, real TCP latency tests, process search, application icons, explicit VPN/Direct application/domain/IP rules, VLESS/VMess/Trojan/Shadowsocks/SOCKS/HTTP URI import, XHTTP, VLESS + REALITY preservation, DPAPI-protected credentials, Xray integrity/config validation, and MSI packaging sources.
 
 It does **not** claim a completed Windows acceptance test from this macOS workspace. See [docs/VERIFICATION.md](docs/VERIFICATION.md).
 
@@ -17,7 +17,7 @@ Prerequisites are .NET SDK 10 and `msitools`:
 
 ```bash
 brew install dotnet@10 msitools
-./scripts/build-windows.sh 0.2.0
+./scripts/build-windows.sh 0.2.2
 ```
 
 The script downloads and verifies the pinned Xray archive, runs the unit tests, publishes self-contained Windows x64 executables, builds the MSI, and writes both `artifacts/FlowTunnel-x64.msi` and its `.sha256` file. Update `VERSION` when the version argument is omitted.
@@ -64,9 +64,9 @@ Discord commonly has several processes. FlowTunnel groups identical executable p
 - No Windows Filtering Platform kill switch is implemented. An engine crash can restore normal Windows routing; FlowTunnel does not claim OS-enforced leak prevention.
 - DNS uses the configured Xray TUN DNS path. Per-application DNS isolation is not claimed.
 - Connection-to-process telemetry is intentionally hidden until a reliable attribution source is implemented.
-- Auto-start, live reconfiguration without a brief reconnect, icon extraction, and code signing remain unimplemented. Closing the main window hides it to the notification area; double-click the icon to restore it.
+- Auto-start, live reconfiguration without a brief reconnect, and code signing remain unimplemented. Closing the main window hides it to the notification area; double-click the icon to restore it.
 - The service currently authorizes the active console user; Remote Desktop-only sessions require a future session-aware authorization implementation.
 
 ## Third-party software
 
-FlowTunnel supervises Xray-core 26.11.9. Packaging preserves its license alongside the binary. The official source corresponding to the pinned release is available from the [Xray-core v26.11.9 release](https://github.com/XTLS/Xray-core/releases/tag/v26.11.9).
+FlowTunnel supervises Xray-core 26.11.9 and packages the matching Wintun driver required for Windows TUN mode. Packaging preserves both licenses alongside the binaries. The official source corresponding to the pinned release is available from the [Xray-core v26.11.9 release](https://github.com/XTLS/Xray-core/releases/tag/v26.11.9).

@@ -38,6 +38,7 @@ internal static class Program
                 services.AddSingleton<XrayProcess>();
                 services.AddSingleton<IProxyConfigurationValidator>(sp => sp.GetRequiredService<XrayProcess>());
                 services.AddSingleton<IRoutingRuleRepository>(sp => new RoutingRuleRepository(Path.Combine(dataRoot, "rules.json"), sp.GetRequiredService<ILogger<RoutingRuleRepository>>()));
+                services.AddSingleton<INetworkRoutingRuleRepository>(sp => new NetworkRoutingRuleRepository(Path.Combine(dataRoot, "network-rules.json"), sp.GetRequiredService<ILogger<NetworkRoutingRuleRepository>>()));
                 services.AddSingleton<IProfileRepository>(sp => new ProfileRepository(Path.Combine(dataRoot, "profiles.json"), sp.GetRequiredService<ILogger<ProfileRepository>>()));
                 services.AddSingleton<ISubscriptionRepository>(sp => new SubscriptionRepository(Path.Combine(dataRoot, "subscriptions.json"), sp.GetRequiredService<ILogger<SubscriptionRepository>>()));
                 services.AddSingleton<ISettingsRepository>(sp => new SettingsRepository(Path.Combine(dataRoot, "settings.json"), sp.GetRequiredService<ILogger<SettingsRepository>>()));
@@ -45,7 +46,7 @@ internal static class Program
                 services.AddSingleton(new HttpClient { Timeout = TimeSpan.FromSeconds(20) });
                 services.AddSingleton<ISubscriptionService, SubscriptionService>();
                 services.AddSingleton<IProfileLatencyService, TcpProfileLatencyService>();
-                services.AddSingleton<IConnectionManager>(sp => new ConnectionManager(sp.GetRequiredService<IProxyEngine>(), sp.GetRequiredService<IProxyConfigurationGenerator>(), sp.GetRequiredService<IProxyConfigurationValidator>(), sp.GetRequiredService<IRoutingRuleRepository>(), sp.GetRequiredService<ISettingsRepository>(), Path.Combine(runtimeRoot, "active.json"), sp.GetRequiredService<ILogger<ConnectionManager>>()));
+                services.AddSingleton<IConnectionManager>(sp => new ConnectionManager(sp.GetRequiredService<IProxyEngine>(), sp.GetRequiredService<IProxyConfigurationGenerator>(), sp.GetRequiredService<IProxyConfigurationValidator>(), sp.GetRequiredService<IRoutingRuleRepository>(), sp.GetRequiredService<INetworkRoutingRuleRepository>(), sp.GetRequiredService<ISettingsRepository>(), Path.Combine(runtimeRoot, "active.json"), sp.GetRequiredService<ILogger<ConnectionManager>>()));
                 services.AddSingleton<RoutingRuleService>();
             }).Build();
 

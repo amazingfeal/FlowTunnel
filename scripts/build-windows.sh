@@ -51,9 +51,13 @@ fi
 unzip -q "$ZIP" -d "$ENGINE_DIR"
 ENGINE_EXE="$(find "$ENGINE_DIR" -type f -iname xray.exe -print -quit)"
 ENGINE_LICENSE="$(find "$ENGINE_DIR" -type f -name LICENSE -print -quit)"
-[[ -n "$ENGINE_EXE" && -n "$ENGINE_LICENSE" ]] || { echo "Invalid Xray archive." >&2; exit 1; }
+WINTUN_DLL="$(find "$ENGINE_DIR" -type f -iname wintun.dll -print -quit)"
+WINTUN_LICENSE="$(find "$ENGINE_DIR" -type f -name LICENSE-Wintun -print -quit)"
+[[ -n "$ENGINE_EXE" && -n "$ENGINE_LICENSE" && -n "$WINTUN_DLL" && -n "$WINTUN_LICENSE" ]] || { echo "Invalid Xray archive." >&2; exit 1; }
 cp "$ENGINE_EXE" "$PAYLOAD_DIR/xray.exe"
 cp "$ENGINE_LICENSE" "$PAYLOAD_DIR/xray-LICENSE.txt"
+cp "$WINTUN_DLL" "$PAYLOAD_DIR/wintun.dll"
+cp "$WINTUN_LICENSE" "$PAYLOAD_DIR/wintun-LICENSE.txt"
 ENGINE_SHA256="$(shasum -a 256 "$PAYLOAD_DIR/xray.exe" | awk '{print $1}')"
 printf '{\n  "version": "%s",\n  "sha256": "%s"\n}\n' "$XRAY_VERSION" "$ENGINE_SHA256" > "$PAYLOAD_DIR/engine.json"
 
@@ -67,6 +71,8 @@ done
 
 COMMON_PUBLISH=(
   -c Release -r win-x64 --self-contained true
+  -p:Version="$VERSION"
+  -p:FileVersion="$VERSION.0"
   -p:EnableWindowsTargeting=true
   -p:PublishSingleFile=true
   -p:EnableCompressionInSingleFile=true
@@ -84,8 +90,10 @@ wixl -a x64 \
   -D DesktopExe="$DESKTOP_DIR/FlowTunnel.Desktop.exe" \
   -D ServiceExe="$SERVICE_DIR/FlowTunnel.Service.exe" \
   -D XrayExe="$PAYLOAD_DIR/xray.exe" \
+  -D WintunDll="$PAYLOAD_DIR/wintun.dll" \
   -D EngineMetadata="$PAYLOAD_DIR/engine.json" \
   -D XrayLicense="$PAYLOAD_DIR/xray-LICENSE.txt" \
+  -D WintunLicense="$PAYLOAD_DIR/wintun-LICENSE.txt" \
   --ext ui -o "$OUTPUT" "$ROOT/installer/Package.wixl.wxs" "$ROOT/installer/FlowTunnelUI.wxs"
 
 shasum -a 256 "$OUTPUT" > "$OUTPUT.sha256"

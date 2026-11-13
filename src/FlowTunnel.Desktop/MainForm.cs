@@ -1,6 +1,7 @@
 using System.Drawing.Drawing2D;
 using System.Text.RegularExpressions;
 using System.ComponentModel;
+using System.Reflection;
 using FlowTunnel.Application;
 using FlowTunnel.Core;
 using Microsoft.Extensions.DependencyInjection;
@@ -29,6 +30,7 @@ internal sealed class MainForm : Form
     private readonly IProfileLatencyService _latencyService;
     private readonly IProcessDiscoveryService _processes;
     private readonly IRoutingRuleRepository _ruleRepository;
+    private readonly INetworkRoutingRuleRepository _networkRuleRepository;
     private readonly ISettingsRepository _settingsRepository;
     private readonly RoutingRuleService _routing;
     private readonly string _dataRoot;
@@ -50,14 +52,21 @@ internal sealed class MainForm : Form
     private readonly Dictionary<Guid, ProfileLatency> _latencies = [];
     private readonly TextBox _search = MakeTextBox("Search by app, executable or path...");
     private readonly DataGridView _apps = new();
+    private readonly ComboBox _networkKind = new();
+    private readonly TextBox _networkValue = MakeTextBox("example.com or 10.20.0.0/16");
+    private readonly ComboBox _networkRoute = new();
+    private readonly DataGridView _networkRulesGrid = new();
     private readonly ComboBox _routingMode = new();
     private readonly Label _appSummary = MakeLabel("Refresh to discover running applications", 9, FontStyle.Regular, TextMuted);
     private readonly Label _routeFeedback = MakeLabel("", 9, FontStyle.Bold, Accent);
     private readonly NotifyIcon _tray;
     private readonly List<RunningApplication> _allApplications = [];
     private IReadOnlyList<ApplicationRoutingRule> _rules = [];
+    private IReadOnlyList<NetworkRoutingRule> _networkRules = [];
+    private readonly Dictionary<string, Image> _appIcons = new(StringComparer.OrdinalIgnoreCase);
     private AppSettings _settings = new();
     private bool _updatingGrid;
+    private readonly SemaphoreSlim _routeChangeGate = new(1, 1);
 
     public MainForm(IServiceProvider services, string dataRoot)
     {
@@ -69,6 +78,7 @@ internal sealed class MainForm : Form
         _latencyService = services.GetRequiredService<IProfileLatencyService>();
         _processes = services.GetRequiredService<IProcessDiscoveryService>();
         _ruleRepository = services.GetRequiredService<IRoutingRuleRepository>();
+        _networkRuleRepository = services.GetRequiredService<INetworkRoutingRuleRepository>();
         _settingsRepository = services.GetRequiredService<ISettingsRepository>();
         _routing = services.GetRequiredService<RoutingRuleService>();
         _dataRoot = dataRoot;
@@ -94,7 +104,7 @@ internal sealed class MainForm : Form
         _tray.ContextMenuStrip.Items.Add("Open FlowTunnel", null, (_, _) => RestoreWindow());
         _tray.ContextMenuStrip.Items.Add("Exit", null, (_, _) => { _tray.Visible = false; System.Windows.Forms.Application.Exit(); });
         Resize += (_, _) => { if (WindowState == FormWindowState.Minimized) Hide(); };
-        FormClosed += (_, _) => _tray.Dispose();
+        FormClosed += (_, _) => { _tray.Dispose(); foreach (var image in _appIcons.Values) image.Dispose(); _appIcons.Clear(); };
         KeyDown += (_, e) => { if (e.Control && e.KeyCode == Keys.K) { ShowPage("Applications"); _search.Focus(); e.SuppressKeyPress = true; } };
         _connection.StateChanged += (_, snapshot) => BeginInvoke(() => ApplyConnection(snapshot));
         Shown += async (_, _) =>
@@ -103,6 +113,7 @@ internal sealed class MainForm : Form
             _routingMode.SelectedIndex = _settings.RoutingMode == RoutingMode.OnlySelectedUseVpn ? 0 : 1;
             await RefreshServersAsync();
             await RefreshApplicationsAsync();
+            await RefreshNetworkRulesAsync();
             ApplyConnection(_connection.Snapshot);
         };
     }
@@ -127,12 +138,13 @@ internal sealed class MainForm : Form
         }
         panel.Controls.Add(nav);
 
-        var footer = MakeLabel("Ctrl + K  Search apps", 9, FontStyle.Regular, TextMuted);
-        footer.AutoSize = false;
-        footer.Dock = DockStyle.Bottom;
-        footer.Height = 34;
-        footer.TextAlign = ContentAlignment.MiddleCenter;
-        panel.Controls.Add(footer);
+        var footer = new Panel { Dock = DockStyle.Bottom, Height = 66, BackColor = Sidebar };
+        var shortcut = MakeLabel("Ctrl + K  Search apps", 9, FontStyle.Regular, TextMuted);
+        shortcut.AutoSize = false; shortcut.Dock = DockStyle.Top; shortcut.Height = 30; shortcut.TextAlign = ContentAlignment.MiddleCenter;
+        var version = MakeLabel($"Version {InstalledVersion()}", 8.5f, FontStyle.Bold, TextMuted);
+        version.AutoSize = false; version.Dock = DockStyle.Bottom; version.Height = 30; version.TextAlign = ContentAlignment.MiddleCenter;
+        version.AccessibleName = $"Installed version {InstalledVersion()}";
+        footer.Controls.AddRange([shortcut, version]); panel.Controls.Add(footer);
         return panel;
     }
 
@@ -224,6 +236,17 @@ internal sealed class MainForm : Form
         ConfigureApplicationsGrid(); _apps.Location = new Point(16, 16); _apps.Size = new Size(944, 314);
         _appSummary.Location = new Point(18, 345); _routeFeedback.Location = new Point(640, 345); _routeFeedback.AutoSize = false; _routeFeedback.Size = new Size(300, 24); _routeFeedback.TextAlign = ContentAlignment.MiddleRight;
         gridCard.Controls.AddRange([_apps, _appSummary, _routeFeedback]); body.Controls.Add(gridCard);
+
+        var networkCard = new RoundedPanel { Location = new Point(36, 662), Size = new Size(976, 340), BackColor = Surface, Radius = 16, Padding = new Padding(16) };
+        var networkTitle = MakeLabel("Domain & IP routing", 13, FontStyle.Bold, TextPrimary); networkTitle.Location = new Point(18, 16);
+        var networkHelp = MakeLabel("A domain rule includes its subdomains. IP rules accept a single IPv4/IPv6 address or CIDR range.", 9, FontStyle.Regular, TextMuted); networkHelp.Location = new Point(18, 45);
+        ConfigureNetworkRuleControls();
+        _networkKind.Location = new Point(18, 76); _networkKind.Size = new Size(150, 36);
+        _networkValue.Location = new Point(182, 76); _networkValue.Size = new Size(420, 36); _networkValue.AccessibleName = "Domain, IP address or CIDR range";
+        _networkRoute.Location = new Point(616, 76); _networkRoute.Size = new Size(142, 36);
+        var addNetworkRule = MakeButton("Add rule", Accent, Color.White, 178, 38); addNetworkRule.Location = new Point(778, 74); addNetworkRule.Click += async (_, _) => await AddNetworkRuleAsync();
+        ConfigureNetworkRulesGrid(); _networkRulesGrid.Location = new Point(18, 130); _networkRulesGrid.Size = new Size(938, 190);
+        networkCard.Controls.AddRange([networkTitle, networkHelp, _networkKind, _networkValue, _networkRoute, addNetworkRule, _networkRulesGrid]); body.Controls.Add(networkCard);
         return page;
     }
 
@@ -281,12 +304,13 @@ internal sealed class MainForm : Form
 
     private void ConfigureApplicationsGrid()
     {
-        _apps.AllowUserToAddRows = false; _apps.AllowUserToDeleteRows = false; _apps.AllowUserToResizeRows = false; _apps.AutoGenerateColumns = false; _apps.ReadOnly = false;
+        _apps.AllowUserToAddRows = false; _apps.AllowUserToDeleteRows = false; _apps.AllowUserToResizeRows = false; _apps.AutoGenerateColumns = false; _apps.ReadOnly = false; _apps.EditMode = DataGridViewEditMode.EditOnEnter;
         _apps.BackgroundColor = Surface; _apps.BorderStyle = BorderStyle.None; _apps.GridColor = Border; _apps.RowHeadersVisible = false; _apps.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
         _apps.EnableHeadersVisualStyles = false; _apps.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle { BackColor = SurfaceRaised, ForeColor = TextMuted, Font = new Font("Segoe UI", 9, FontStyle.Bold), SelectionBackColor = SurfaceRaised, Padding = new Padding(8) };
         _apps.DefaultCellStyle = new DataGridViewCellStyle { BackColor = Surface, ForeColor = TextPrimary, SelectionBackColor = Color.FromArgb(35, 58, 82), SelectionForeColor = TextPrimary, Padding = new Padding(8), Font = new Font("Segoe UI", 9.5f) };
         _apps.AlternatingRowsDefaultCellStyle = new DataGridViewCellStyle { BackColor = Color.FromArgb(22, 31, 48), ForeColor = TextPrimary, SelectionBackColor = Color.FromArgb(35, 58, 82), SelectionForeColor = TextPrimary, Padding = new Padding(8) };
         _apps.RowTemplate.Height = 46; _apps.ColumnHeadersHeight = 44; _apps.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+        _apps.Columns.Add(new DataGridViewImageColumn { Name = "Icon", HeaderText = "", Width = 48, AutoSizeMode = DataGridViewAutoSizeColumnMode.None, ReadOnly = true, ImageLayout = DataGridViewImageCellLayout.Zoom });
         _apps.Columns.Add(new DataGridViewTextBoxColumn { Name = "App", HeaderText = "APPLICATION", FillWeight = 145, ReadOnly = true });
         _apps.Columns.Add(new DataGridViewTextBoxColumn { Name = "Executable", HeaderText = "EXECUTABLE", FillWeight = 120, ReadOnly = true });
         _apps.Columns.Add(new DataGridViewTextBoxColumn { Name = "Instances", HeaderText = "INSTANCES", FillWeight = 54, ReadOnly = true });
@@ -302,6 +326,32 @@ internal sealed class MainForm : Form
         };
         _apps.DataError += (_, e) => e.ThrowException = false;
         _apps.AccessibleName = "Running applications and routing rules";
+    }
+
+    private void ConfigureNetworkRuleControls()
+    {
+        foreach (var combo in new[] { _networkKind, _networkRoute })
+        {
+            combo.DropDownStyle = ComboBoxStyle.DropDownList; combo.FlatStyle = FlatStyle.Flat; combo.BackColor = SurfaceRaised; combo.ForeColor = TextPrimary;
+        }
+        _networkKind.Items.AddRange(["Domain", "IP / CIDR"]); _networkKind.SelectedIndex = 0; _networkKind.AccessibleName = "Network rule type";
+        _networkRoute.Items.AddRange(["VPN", "Direct"]); _networkRoute.SelectedIndex = 0; _networkRoute.AccessibleName = "Network route";
+    }
+
+    private void ConfigureNetworkRulesGrid()
+    {
+        _networkRulesGrid.AllowUserToAddRows = false; _networkRulesGrid.AllowUserToDeleteRows = false; _networkRulesGrid.AllowUserToResizeRows = false;
+        _networkRulesGrid.AutoGenerateColumns = false; _networkRulesGrid.ReadOnly = true; _networkRulesGrid.BackgroundColor = Surface; _networkRulesGrid.BorderStyle = BorderStyle.None;
+        _networkRulesGrid.GridColor = Border; _networkRulesGrid.RowHeadersVisible = false; _networkRulesGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+        _networkRulesGrid.EnableHeadersVisualStyles = false; _networkRulesGrid.ColumnHeadersHeight = 40; _networkRulesGrid.RowTemplate.Height = 42; _networkRulesGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+        _networkRulesGrid.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle { BackColor = SurfaceRaised, ForeColor = TextMuted, Font = new Font("Segoe UI", 9, FontStyle.Bold), SelectionBackColor = SurfaceRaised, Padding = new Padding(8) };
+        _networkRulesGrid.DefaultCellStyle = new DataGridViewCellStyle { BackColor = Surface, ForeColor = TextPrimary, SelectionBackColor = Color.FromArgb(35, 58, 82), SelectionForeColor = TextPrimary, Padding = new Padding(8), Font = new Font("Segoe UI", 9.5f) };
+        _networkRulesGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Kind", HeaderText = "TYPE", FillWeight = 60 });
+        _networkRulesGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Value", HeaderText = "DOMAIN / IP / CIDR", FillWeight = 210 });
+        _networkRulesGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Route", HeaderText = "ROUTE", FillWeight = 70 });
+        _networkRulesGrid.Columns.Add(new DataGridViewButtonColumn { Name = "Remove", HeaderText = "", Text = "Remove", UseColumnTextForButtonValue = true, FillWeight = 55, FlatStyle = FlatStyle.Flat });
+        _networkRulesGrid.CellContentClick += async (_, e) => { if (e.RowIndex >= 0 && _networkRulesGrid.Columns[e.ColumnIndex].Name == "Remove") await RemoveNetworkRuleAsync(e.RowIndex); };
+        _networkRulesGrid.AccessibleName = "Domain and IP routing rules";
     }
 
     private async Task ToggleAsync()
@@ -474,27 +524,109 @@ internal sealed class MainForm : Form
         var filtered = _allApplications.Where(app => query.Length == 0 || app.DisplayName.Contains(query, StringComparison.CurrentCultureIgnoreCase) || app.Identity.ExecutableName.Contains(query, StringComparison.OrdinalIgnoreCase) || (app.Identity.ExecutablePath?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false)).ToArray();
         foreach (var app in filtered)
         {
-            var explicitRule = _rules.FirstOrDefault(r => r.Enabled && r.Identity.StableKey == app.Identity.StableKey);
+            var explicitRule = FindRule(app.Identity);
             var configured = explicitRule?.Route ?? ApplicationRoute.Default;
             var effective = _routing.Resolve(app.Identity, _settings.RoutingMode, _rules);
-            var index = _apps.Rows.Add(app.DisplayName, app.Identity.ExecutableName, app.ProcessCount, configured, effective == ApplicationRoute.Vpn ? "VPN" : "DIRECT");
+            var index = _apps.Rows.Add(GetApplicationIcon(app), app.DisplayName, app.Identity.ExecutableName, app.ProcessCount, configured, effective == ApplicationRoute.Vpn ? "VPN" : "DIRECT");
             _apps.Rows[index].Tag = app;
         }
         _updatingGrid = false;
         _appSummary.Text = filtered.Length == 0 ? "No matching processes. Try a shorter name or refresh the list." : $"Showing {filtered.Length} of {_allApplications.Count} running applications";
     }
 
+    private Image GetApplicationIcon(RunningApplication app)
+    {
+        var path = app.IconPath ?? app.Identity.ExecutablePath;
+        var key = path ?? app.Identity.ExecutableName;
+        if (_appIcons.TryGetValue(key, out var cached)) return cached;
+        Image image;
+        try
+        {
+            using var icon = !string.IsNullOrWhiteSpace(path) && File.Exists(path) ? Icon.ExtractAssociatedIcon(path) : null;
+            image = icon?.ToBitmap() ?? SystemIcons.Application.ToBitmap();
+        }
+        catch { image = SystemIcons.Application.ToBitmap(); }
+        _appIcons[key] = image;
+        return image;
+    }
+
+    private async Task RefreshNetworkRulesAsync()
+    {
+        _networkRules = await _networkRuleRepository.GetAllAsync(CancellationToken.None);
+        _networkRulesGrid.Rows.Clear();
+        foreach (var rule in _networkRules.OrderBy(x => x.Priority).ThenBy(x => x.Id))
+        {
+            var index = _networkRulesGrid.Rows.Add(rule.Kind == NetworkRuleKind.Domain ? "Domain" : "IP / CIDR", rule.Value, rule.Route == ApplicationRoute.Vpn ? "VPN" : "DIRECT");
+            _networkRulesGrid.Rows[index].Tag = rule;
+        }
+    }
+
+    private async Task AddNetworkRuleAsync()
+    {
+        try
+        {
+            var value = _networkValue.Text.Trim();
+            var kind = _networkKind.SelectedIndex == 0 ? NetworkRuleKind.Domain : NetworkRuleKind.IpCidr;
+            if (kind == NetworkRuleKind.Domain)
+            {
+                value = value.TrimEnd('.').ToLowerInvariant();
+                if (value.StartsWith("*.", StringComparison.Ordinal)) value = value[2..];
+            }
+            var route = _networkRoute.SelectedIndex == 0 ? ApplicationRoute.Vpn : ApplicationRoute.Direct;
+            var rule = new NetworkRoutingRule(Guid.NewGuid(), kind, value, route, _networkRules.Count == 0 ? 10 : _networkRules.Max(x => x.Priority) + 10, true, DateTimeOffset.UtcNow);
+            rule.Validate();
+            if (_networkRules.Any(x => x.Kind == kind && string.Equals(x.Value, value, StringComparison.OrdinalIgnoreCase)))
+                throw new ArgumentException("This domain or IP rule already exists. Remove it first to choose another route.");
+            await _networkRuleRepository.SaveAllAsync(_networkRules.Append(rule).ToArray(), CancellationToken.None);
+            _networkValue.Clear();
+            await RefreshNetworkRulesAsync();
+            await _connection.ReapplyRoutingAsync(CancellationToken.None);
+            ShowRouteFeedback($"{value}: {route} saved");
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            MessageBox.Show(this, FriendlyError(ex.Message), "Could not add rule", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    private async Task RemoveNetworkRuleAsync(int rowIndex)
+    {
+        if (rowIndex >= _networkRulesGrid.Rows.Count || _networkRulesGrid.Rows[rowIndex].Tag is not NetworkRoutingRule rule) return;
+        await _networkRuleRepository.SaveAllAsync(_networkRules.Where(x => x.Id != rule.Id).ToArray(), CancellationToken.None);
+        await RefreshNetworkRulesAsync();
+        await _connection.ReapplyRoutingAsync(CancellationToken.None);
+        ShowRouteFeedback($"{rule.Value} removed");
+    }
+
     private async Task RouteCellChangedAsync(DataGridViewCellEventArgs e)
     {
         if (_updatingGrid || e.RowIndex < 0 || _apps.Columns[e.ColumnIndex].Name != "Rule" || _apps.Rows[e.RowIndex].Tag is not RunningApplication app) return;
-        if (_apps.Rows[e.RowIndex].Cells[e.ColumnIndex].Value is not ApplicationRoute route) return;
+        var value = _apps.Rows[e.RowIndex].Cells[e.ColumnIndex].Value;
+        if (value is not ApplicationRoute route && (value is not string text || !Enum.TryParse(text, true, out route))) return;
+        await _routeChangeGate.WaitAsync();
         try
         {
             await _routing.SetRouteAsync(app.Identity, app.DisplayName, route, CancellationToken.None);
-            _rules = await _ruleRepository.GetAllAsync(CancellationToken.None); RenderApplications(); ShowRouteFeedback($"{app.DisplayName}: {route} applied");
+            _rules = await _ruleRepository.GetAllAsync(CancellationToken.None);
+            var saved = FindRule(app.Identity)?.Route ?? ApplicationRoute.Default;
+            var effective = _routing.Resolve(app.Identity, _settings.RoutingMode, _rules);
+            if (e.RowIndex < _apps.Rows.Count && ReferenceEquals(_apps.Rows[e.RowIndex].Tag, app))
+            {
+                _updatingGrid = true;
+                _apps.Rows[e.RowIndex].Cells["Rule"].Value = saved;
+                _apps.Rows[e.RowIndex].Cells["Effective"].Value = effective == ApplicationRoute.Vpn ? "VPN" : "DIRECT";
+                _updatingGrid = false;
+            }
+            ShowRouteFeedback($"{app.DisplayName}: {saved} saved");
         }
         catch (Exception ex) { MessageBox.Show(this, FriendlyError(ex.Message), "Could not apply route", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        finally { _updatingGrid = false; _routeChangeGate.Release(); }
     }
+
+    private ApplicationRoutingRule? FindRule(ProcessIdentity identity) => _rules.FirstOrDefault(r => r.Enabled &&
+        (string.Equals(r.Identity.StableKey, identity.StableKey, StringComparison.OrdinalIgnoreCase)
+         || ((string.IsNullOrWhiteSpace(r.Identity.ExecutablePath) || string.IsNullOrWhiteSpace(identity.ExecutablePath))
+             && string.Equals(r.Identity.ExecutableName, identity.ExecutableName, StringComparison.OrdinalIgnoreCase))));
 
     private void ShowRouteFeedback(string message)
     {
@@ -530,6 +662,14 @@ internal sealed class MainForm : Form
     {
         var clean = Regex.Replace(value, "\\x1B(?:[@-Z\\\\-_]|\\[[0-?]*[ -/]*[@-~])", "").Trim();
         return clean;
+    }
+
+    private static string InstalledVersion()
+    {
+        var version = Assembly.GetEntryAssembly()?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+            ?? Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3)
+            ?? "unknown";
+        return version.Split('+')[0];
     }
 
     private static Label MakeLabel(string text, float size, FontStyle style, Color color) => new() { Text = text, AutoSize = true, Font = new Font("Segoe UI", size, style), ForeColor = color, BackColor = Color.Transparent };

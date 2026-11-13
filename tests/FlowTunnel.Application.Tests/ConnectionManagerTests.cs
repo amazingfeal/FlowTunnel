@@ -46,7 +46,7 @@ public sealed class ConnectionManagerTests
         public Fixture(FakeEngine engine, ValidationResult validation)
         {
             Directory.CreateDirectory(_directory);
-            Manager = new ConnectionManager(engine, new FakeGenerator(), new FakeValidator(validation), new EmptyRules(), new MemorySettings(), Path.Combine(_directory, "active.json"), NullLogger<ConnectionManager>.Instance);
+            Manager = new ConnectionManager(engine, new FakeGenerator(), new FakeValidator(validation), new EmptyRules(), new EmptyNetworkRules(), new MemorySettings(), Path.Combine(_directory, "active.json"), NullLogger<ConnectionManager>.Instance);
         }
         public ConnectionManager Manager { get; }
         public void Dispose() { Manager.Dispose(); Directory.Delete(_directory, true); }
@@ -63,7 +63,7 @@ public sealed class ConnectionManagerTests
     }
     private sealed class FakeGenerator : IProxyConfigurationGenerator
     {
-        public string Generate(ProxyProfile profile, RoutingMode mode, IReadOnlyCollection<ApplicationRoutingRule> rules, FailSafePolicy failSafePolicy) => "{}";
+        public string Generate(ProxyProfile profile, RoutingMode mode, IReadOnlyCollection<ApplicationRoutingRule> rules, IReadOnlyCollection<NetworkRoutingRule> networkRules, FailSafePolicy failSafePolicy) => "{}";
     }
     private sealed class FakeValidator(ValidationResult result) : IProxyConfigurationValidator
     {
@@ -73,6 +73,11 @@ public sealed class ConnectionManagerTests
     {
         public Task<IReadOnlyList<ApplicationRoutingRule>> GetAllAsync(CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<ApplicationRoutingRule>>([]);
         public Task SaveAllAsync(IReadOnlyCollection<ApplicationRoutingRule> items, CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+    private sealed class EmptyNetworkRules : INetworkRoutingRuleRepository
+    {
+        public Task<IReadOnlyList<NetworkRoutingRule>> GetAllAsync(CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<NetworkRoutingRule>>([]);
+        public Task SaveAllAsync(IReadOnlyCollection<NetworkRoutingRule> items, CancellationToken cancellationToken) => Task.CompletedTask;
     }
     private sealed class MemorySettings : ISettingsRepository
     {

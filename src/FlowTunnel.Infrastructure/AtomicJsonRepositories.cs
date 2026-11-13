@@ -49,6 +49,9 @@ public abstract class AtomicJsonRepository<T>(string path, ILogger logger) : IRe
 public sealed class RoutingRuleRepository(string path, ILogger<RoutingRuleRepository> logger)
     : AtomicJsonRepository<ApplicationRoutingRule>(path, logger), IRoutingRuleRepository;
 
+public sealed class NetworkRoutingRuleRepository(string path, ILogger<NetworkRoutingRuleRepository> logger)
+    : AtomicJsonRepository<NetworkRoutingRule>(path, logger), INetworkRoutingRuleRepository;
+
 public sealed class SubscriptionRepository(string path, ILogger<SubscriptionRepository> logger)
     : AtomicJsonRepository<ProxySubscription>(path, logger), ISubscriptionRepository;
 

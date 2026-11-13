@@ -8,15 +8,27 @@ public sealed class XrayConfigurationGenerator : IProxyConfigurationGenerator
 {
     public const string SupportedVersion = "26.11.9";
 
-    public string Generate(ProxyProfile profile, RoutingMode mode, IReadOnlyCollection<ApplicationRoutingRule> rules, FailSafePolicy failSafePolicy)
+    public string Generate(ProxyProfile profile, RoutingMode mode, IReadOnlyCollection<ApplicationRoutingRule> rules, IReadOnlyCollection<NetworkRoutingRule> networkRules, FailSafePolicy failSafePolicy)
     {
         profile.Validate();
         foreach (var rule in rules) rule.Validate();
+        foreach (var rule in networkRules) rule.Validate();
 
         var routeRules = new JsonArray
         {
             new JsonObject { ["type"] = "field", ["process"] = new JsonArray("xray/"), ["outboundTag"] = "direct" }
         };
+        foreach (var rule in networkRules.Where(r => r.Enabled).OrderBy(r => r.Priority).ThenBy(r => r.Id))
+        {
+            var json = new JsonObject
+            {
+                ["type"] = "field",
+                ["outboundTag"] = rule.Route == ApplicationRoute.Vpn ? "proxy" : "direct"
+            };
+            if (rule.Kind == NetworkRuleKind.Domain) json["domain"] = new JsonArray(NormalizeDomain(rule.Value));
+            else json["ip"] = new JsonArray(rule.Value.Trim());
+            routeRules.Add(json);
+        }
         foreach (var rule in rules.Where(r => r.Enabled).OrderBy(r => r.Priority).ThenBy(r => r.Id))
         {
             var process = !string.IsNullOrWhiteSpace(rule.Identity.ExecutablePath)
@@ -59,6 +71,15 @@ public sealed class XrayConfigurationGenerator : IProxyConfigurationGenerator
             ["routing"] = new JsonObject { ["domainStrategy"] = "AsIs", ["rules"] = routeRules }
         };
         return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private static string NormalizeDomain(string value)
+    {
+        value = value.Trim().ToLowerInvariant();
+        if (value.StartsWith("*.", StringComparison.Ordinal)) value = value[2..];
+        return value.StartsWith("domain:", StringComparison.Ordinal) || value.StartsWith("full:", StringComparison.Ordinal)
+            || value.StartsWith("regexp:", StringComparison.Ordinal) || value.StartsWith("geosite:", StringComparison.Ordinal)
+            ? value : "domain:" + value;
     }
 
     private static JsonObject BuildProxyOutbound(ProxyProfile profile)

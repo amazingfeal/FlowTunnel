@@ -1,5 +1,5 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <Package Name="FlowTunnel" Manufacturer="FlowTunnel contributors" Version="0.2.1" UpgradeCode="2E48AB94-91A8-44A0-BC56-6FEF90BF4B13" Scope="perMachine" Compressed="yes">
+  <Package Name="FlowTunnel" Manufacturer="FlowTunnel contributors" Version="0.2.2" UpgradeCode="2E48AB94-91A8-44A0-BC56-6FEF90BF4B13" Scope="perMachine" Compressed="yes">
     <MajorUpgrade DowngradeErrorMessage="A newer version of FlowTunnel is already installed." />
     <MediaTemplate EmbedCab="yes" />
     <StandardDirectory Id="ProgramFiles64Folder">
@@ -23,8 +23,10 @@
     <DirectoryRef Id="INSTALLFOLDER">
       <Component Id="EnginePayload" Guid="*">
         <File Id="XrayExe" Source="$(var.PayloadRoot)\xray.exe" KeyPath="yes" />
+        <File Id="WintunDll" Source="$(var.PayloadRoot)\wintun.dll" />
         <File Id="EngineMetadata" Source="$(var.PayloadRoot)\engine.json" />
         <File Id="XrayLicense" Source="$(var.PayloadRoot)\xray-LICENSE.txt" />
+        <File Id="WintunLicense" Source="$(var.PayloadRoot)\wintun-LICENSE.txt" />
       </Component>
     </DirectoryRef>
     <DirectoryRef Id="ServiceFolder">

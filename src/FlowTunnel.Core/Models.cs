@@ -6,6 +6,7 @@ public enum ConnectionState { Disconnected, Connecting, Connected, Disconnecting
 public enum ProxyProtocol { Vless, Vmess, Trojan, Shadowsocks, Socks, Http }
 public enum ProcessChangeKind { Started, Stopped }
 public enum FailSafePolicy { Block, AllowDirect }
+public enum NetworkRuleKind { Domain, IpCidr }
 
 public sealed record ProcessIdentity(string ExecutableName, string? ExecutablePath)
 {
@@ -47,6 +48,29 @@ public sealed record ApplicationRoutingRule(
         if (Route == ApplicationRoute.Default) throw new ArgumentException("A persisted rule must be VPN or Direct.");
         if (string.IsNullOrWhiteSpace(Identity.ExecutableName)) throw new ArgumentException("Executable name is required.");
         if (Priority < 0) throw new ArgumentOutOfRangeException(nameof(Priority));
+    }
+}
+
+public sealed record NetworkRoutingRule(
+    Guid Id,
+    NetworkRuleKind Kind,
+    string Value,
+    ApplicationRoute Route,
+    int Priority,
+    bool Enabled,
+    DateTimeOffset UpdatedAt)
+{
+    public void Validate()
+    {
+        if (Route == ApplicationRoute.Default) throw new ArgumentException("A network rule must be VPN or Direct.");
+        if (string.IsNullOrWhiteSpace(Value)) throw new ArgumentException("Domain or IP/CIDR is required.");
+        if (Value.Any(char.IsWhiteSpace)) throw new ArgumentException("Domain or IP/CIDR cannot contain spaces.");
+        if (Priority < 0) throw new ArgumentOutOfRangeException(nameof(Priority));
+        if (Kind == NetworkRuleKind.IpCidr)
+        {
+            var candidate = Value.Split('/')[0];
+            if (!System.Net.IPAddress.TryParse(candidate, out _)) throw new ArgumentException("Enter a valid IPv4, IPv6 or CIDR value.");
+        }
     }
 }
 

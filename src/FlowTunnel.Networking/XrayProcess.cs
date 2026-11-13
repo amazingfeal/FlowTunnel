@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Collections.Concurrent;
 using System.Security;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
@@ -13,6 +14,7 @@ public sealed partial class XrayProcess(XrayOptions options, ILogger<XrayProcess
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private Process? _process;
+    private readonly ConcurrentQueue<string> _startupErrors = new();
     private bool _stopping;
     public event EventHandler<int>? UnexpectedExit;
 
@@ -26,15 +28,27 @@ public sealed partial class XrayProcess(XrayOptions options, ILogger<XrayProcess
             var validation = await ValidateAsync(configurationPath, cancellationToken).ConfigureAwait(false);
             if (!validation.IsValid) throw new InvalidDataException($"Xray configuration validation failed: {validation.Error}");
             _stopping = false;
+            while (_startupErrors.TryDequeue(out _)) { }
             _process = CreateProcess("run", "-config", configurationPath);
             _process.EnableRaisingEvents = true;
             _process.Exited += OnExited;
             _process.OutputDataReceived += (_, e) => { if (e.Data is not null) logger.LogInformation("Xray: {Message}", Redact(e.Data)); };
-            _process.ErrorDataReceived += (_, e) => { if (e.Data is not null) logger.LogWarning("Xray: {Message}", Redact(e.Data)); };
+            _process.ErrorDataReceived += (sender, e) =>
+            {
+                if (e.Data is null) return;
+                var message = Redact(e.Data);
+                _startupErrors.Enqueue(message);
+                while (_startupErrors.Count > 8) _startupErrors.TryDequeue(out _);
+                logger.LogWarning("Xray: {Message}", message);
+            };
             if (!_process.Start()) throw new InvalidOperationException("Could not start Xray.");
             _process.BeginOutputReadLine(); _process.BeginErrorReadLine();
             await Task.Delay(750, cancellationToken).ConfigureAwait(false);
-            if (_process.HasExited) throw new InvalidOperationException($"Xray exited during startup with code {_process.ExitCode}.");
+            if (_process.HasExited)
+            {
+                var details = string.Join(Environment.NewLine, _startupErrors);
+                throw new InvalidOperationException($"Xray exited during startup with code {_process.ExitCode}.{(string.IsNullOrWhiteSpace(details) ? "" : Environment.NewLine + details)}");
+            }
         }
         finally { _gate.Release(); }
     }

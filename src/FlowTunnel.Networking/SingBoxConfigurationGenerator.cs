@@ -8,16 +8,25 @@ public sealed class SingBoxConfigurationGenerator : IProxyConfigurationGenerator
 {
     public const string SupportedVersion = "1.14.4";
 
-    public string Generate(ProxyProfile profile, RoutingMode mode, IReadOnlyCollection<ApplicationRoutingRule> rules, FailSafePolicy failSafePolicy)
+    public string Generate(ProxyProfile profile, RoutingMode mode, IReadOnlyCollection<ApplicationRoutingRule> rules, IReadOnlyCollection<NetworkRoutingRule> networkRules, FailSafePolicy failSafePolicy)
     {
         profile.Validate();
         foreach (var rule in rules) rule.Validate();
+        foreach (var rule in networkRules) rule.Validate();
 
         var routeRules = new JsonArray
         {
             RouteByName("sing-box.exe", "direct"),
             new JsonObject { ["protocol"] = "dns", ["action"] = "hijack-dns" }
         };
+
+        foreach (var rule in networkRules.Where(r => r.Enabled).OrderBy(r => r.Priority).ThenBy(r => r.Id))
+        {
+            var json = new JsonObject { ["action"] = "route", ["outbound"] = rule.Route == ApplicationRoute.Vpn ? "proxy" : "direct" };
+            if (rule.Kind == NetworkRuleKind.Domain) json["domain_suffix"] = new JsonArray(rule.Value.Trim().TrimStart('*').TrimStart('.'));
+            else json["ip_cidr"] = new JsonArray(rule.Value.Trim());
+            routeRules.Add(json);
+        }
 
         foreach (var rule in rules.Where(r => r.Enabled).OrderBy(r => r.Priority).ThenBy(r => r.Id))
         {

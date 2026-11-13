@@ -39,8 +39,10 @@
     <DirectoryRef Id="INSTALLFOLDER">
       <Component Id="EngineComponent" Guid="*" Win64="yes">
         <File Id="XrayExe" Source="$(var.XrayExe)" KeyPath="yes" />
+        <File Id="WintunDll" Source="$(var.WintunDll)" />
         <File Id="EngineMetadata" Source="$(var.EngineMetadata)" />
         <File Id="XrayLicense" Source="$(var.XrayLicense)" />
+        <File Id="WintunLicense" Source="$(var.WintunLicense)" />
       </Component>
     </DirectoryRef>
     <DirectoryRef Id="DesktopFolder">
